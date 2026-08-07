@@ -1,0 +1,69 @@
+// Grafana Alloy — 앱 VM 도커 컨테이너 stdout/stderr 수집 → Pi Loki push
+// 경로: 앱 VM ~/ytcreator/alloy/config.alloy (compose 가 /etc/alloy/config.alloy 로 마운트)
+// 전송: 기존 SSH 역터널(-R 127.0.0.1:3100:127.0.0.1:3100)이 앱 VM 루프백에 열어 둔 3100 포트
+//       → 컨테이너가 호스트 루프백을 봐야 하므로 network_mode: host 필수
+// 문법 검증: Alloy v1.17 공식 문서 (discovery.docker / discovery.relabel / loki.source.docker / loki.write)
+
+// ── 1. 로컬 도커 데몬에서 실행 중인 컨테이너 발견 ─────────────────────────────
+discovery.docker "local" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+
+  // 실행 중인 컨테이너만 (중지된 컨테이너 제외)
+  filter {
+    name   = "status"
+    values = ["running"]
+  }
+}
+
+// ── 2. 라벨 정리 — 저카디널리티 라벨만 부착 ─────────────────────────────────
+// requestId 류 고카디널리티 값은 절대 라벨로 올리지 않는다 (Loki 스트림 폭발 방지).
+discovery.relabel "docker_logs" {
+  targets = []
+
+  // __meta_docker_container_name 은 도커 API 특성상 "/" 접두가 붙음(예: /ytcreator-app)
+  // → 앞 슬래시를 벗겨 container 라벨로 (ytcreator-app / ytcreator-caddy / ytcreator-alloy)
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+// ── 3. 도커 API 로 컨테이너 stdout/stderr 스트리밍 수집 ──────────────────────
+// 읽기 위치(positions 파일)는 --storage.path(/var/lib/alloy/data, alloy-data 볼륨)에 저장
+// → Alloy 재시작 후에도 도커가 보관 중인 로그(json-file)를 이어서 읽는다.
+loki.source.docker "app_vm" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.local.targets
+  // project 라벨 필수 — 하나의 Loki 를 여러 프로젝트가 공유하므로 이 라벨로 분리된다.
+  labels        = { "job" = "app-vm", "project" = "ytcreator", "env" = "prod" }
+  relabel_rules = discovery.relabel.docker_logs.rules
+  forward_to    = [loki.write.pi.receiver]
+}
+
+// ── 4. Pi 의 Loki 로 push (SSH 역터널 경유 루프백) ───────────────────────────
+loki.write "pi" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+
+    // 터널 단절·Loki 재시작 대비 재시도 강화.
+    // max_backoff_retries = 0 은 무한 재시도(dskit backoff 규약 — 0 = infinite).
+    // 기본값(10회, 총 ~8.5분)이면 장기 단절 시 배치를 드롭하므로 0 으로 고정.
+    // 큐가 차면 상류(loki.source.docker)가 백프레셔로 대기하고,
+    // positions 파일 덕에 프로세스가 재시작돼도 유실 없이 이어서 읽는다.
+    min_backoff_period  = "500ms"
+    max_backoff_period  = "5m"
+    max_backoff_retries = 0
+  }
+
+  // [주의] 디스크 버퍼(WAL)는 Alloy v1.17 기준 아직 experimental —
+  // 활성화하려면 실행 플래그 --stability.level=experimental 이 필요해 채택하지 않았다.
+  // 대신 위의 무한 재시도 + positions 파일 조합으로 유실을 방어한다.
+  // WAL 이 stable 로 승격되면 아래 블록을 해제하고 플래그를 추가할 것.
+  // wal {
+  //   enabled         = true
+  //   max_segment_age = "1h"
+  //   drain_timeout   = "30s"
+  // }
+}

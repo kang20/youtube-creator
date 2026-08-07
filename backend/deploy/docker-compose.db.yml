@@ -1,0 +1,68 @@
+# DB VM(ytcreator-db, 프라이빗 서브넷) 운영용 compose.
+# deploy-db 워크플로가 앱 VM 을 점프호스트로 경유해 ~/ytcreator/ 로 복사·실행한다.
+# 3306 은 VCN 보안 목록에서 앱 서브넷(10.0.0.0/24)에만 열려 있다.
+# 로그 로테이션: 모든 서비스에 앵커 필수 — docs/ops/logging.md §5.1
+x-logging: &app-logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+x-logging-small: &small-logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ytcreator-mysql
+    restart: unless-stopped
+    logging: *app-logging
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ytcreator
+      MYSQL_USER: ytcreator
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    volumes:
+      - ytcreator-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # MySQL 메트릭 → Prometheus (9104). VCN 내부(앱 서브넷)에서만 접근 가능.
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    container_name: ytcreator-mysqld-exporter
+    restart: unless-stopped
+    logging: *small-logging
+    command:
+      - "--mysqld.username=exporter"
+      - "--mysqld.address=mysql:3306"
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQL_EXPORTER_PASSWORD}
+    ports:
+      - "9104:9104"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # 호스트 메트릭 — 앱 VM 경유 터널 -L 29100 이 수집 (docs/ops/monitoring.md §5.2)
+  # ⚠️ host 네트워크 = iptables INPUT 체인 통과 + VCN 보안목록 9100(10.0.0.0/24) 인그레스 필요
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: ytcreator-node-exporter
+    restart: unless-stopped
+    logging: *small-logging
+    network_mode: host
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=0.0.0.0:9100   # VCN 보안목록+iptables 로 10.0.0.0/24 한정
+    volumes:
+      - /:/host:ro,rslave
+
+volumes:
+  ytcreator-mysql-data:

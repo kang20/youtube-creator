@@ -1,0 +1,12 @@
+# Pi: ~/monitoring/prometheus/targets/node-ytcreator.yml
+# 앱 VM · DB VM 의 node_exporter (호스트 CPU·메모리·디스크)
+- targets: ["host.docker.internal:20201"]
+  labels:
+    project: ytcreator
+    service: ytcreator-app-vm
+    env: prod
+- targets: ["host.docker.internal:20203"]
+  labels:
+    project: ytcreator
+    service: ytcreator-db-vm
+    env: prod

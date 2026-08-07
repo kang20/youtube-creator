@@ -1,0 +1,156 @@
+name: Deploy Backend to OCI
+
+on:
+  push:
+    branches: [backend]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "배포할 커밋 SHA (비우면 backend HEAD — 디스코드 /deploy sha 가 넘긴다)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/kang20/ytcreator-backend
+  # 배포 대상 커밋 — 수동 sha input > push 이벤트 순. checkout·이미지 태그·VM 스크립트가 모두 이 값을 쓴다.
+  DEPLOY_SHA: ${{ inputs.sha || github.sha }}
+
+concurrency:
+  # 배포/롤백(rollback.yml)이 같은 VM 을 동시에 만지지 않게 직렬화
+  group: deploy-backend-vm
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SHA 입력 검증
+        if: inputs.sha != ''
+        run: |
+          case "${{ inputs.sha }}" in
+            *[!0-9A-Fa-f]* ) echo "::error:: 유효하지 않은 SHA: '${{ inputs.sha }}'"; exit 1 ;;
+          esac
+
+      - name: 체크아웃
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: JDK 25 설치
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Gradle 캐시
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 테스트
+        working-directory: backend
+        run: |
+          chmod +x gradlew
+          ./gradlew test --no-daemon
+
+      - name: bootJar 빌드
+        working-directory: backend
+        run: ./gradlew bootJar --no-daemon
+
+      - name: QEMU 설정 (ARM 크로스 빌드)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Buildx 설정
+        uses: docker/setup-buildx-action@v3
+
+      - name: GHCR 로그인
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # latest 태그는 "backend HEAD 의 최신 빌드"라는 의미를 유지해야 한다 — 과거 커밋을
+      # sha input 으로 재배포할 때 latest 를 덮으면 rollback·수동 pull 의 기준이 오염된다.
+      - name: 이미지 태그 계산 (sha 지정 배포는 latest 생략)
+        id: tags
+        run: |
+          TAGS="${IMAGE}:${DEPLOY_SHA}"
+          if [ -z "${{ inputs.sha }}" ]; then TAGS="${TAGS},${IMAGE}:latest"; fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: 이미지 빌드 & 푸시 (linux/arm64 — OCI Ampere A1)
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+
+      - name: 배포 파일 VM 으로 복사
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: "backend/deploy/docker-compose.prod.yml,backend/deploy/caddy,backend/deploy/alloy,backend/deploy/deploy.sh,backend/deploy/rollback.sh"
+          target: "~/ytcreator/"
+          strip_components: 2
+
+      - name: VM 에서 블루-그린 배포 (.env 는 GitHub 시크릿에서 매번 재생성)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+          DB_HOST: ${{ vars.DB_HOST }}
+          JPA_DDL_AUTO: ${{ vars.JPA_DDL_AUTO }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          ADMIN_MASTER_KEY: ${{ secrets.ADMIN_MASTER_KEY }}
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          envs: DOMAIN,DB_HOST,JPA_DDL_AUTO,DB_PASSWORD,S3_ACCESS_KEY,S3_SECRET_KEY,DISCORD_WEBHOOK_URL,DEPLOY_WEBHOOK_URL,ADMIN_MASTER_KEY
+          script: |
+            set -e
+            cd ~/ytcreator
+            umask 077
+            SHA='${{ env.DEPLOY_SHA }}'
+            {
+              echo "DOMAIN=$DOMAIN"
+              echo "DB_HOST=$DB_HOST"
+              echo "DB_PASSWORD=$DB_PASSWORD"
+              echo "JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}"
+              echo "S3_ACCESS_KEY=$S3_ACCESS_KEY"
+              echo "S3_SECRET_KEY=$S3_SECRET_KEY"
+              echo "DISCORD_WEBHOOK_URL=$DISCORD_WEBHOOK_URL"
+              echo "DEPLOY_WEBHOOK_URL=$DEPLOY_WEBHOOK_URL"
+              echo "ADMIN_MASTER_KEY=$ADMIN_MASTER_KEY"
+              echo "IMAGE_TAG=$SHA"
+              echo "SHORT_SHA=$(echo "$SHA" | cut -c1-7)"
+              echo "RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            } > .env
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            chmod +x deploy.sh rollback.sh
+            bash deploy.sh
+
+      # deploy.sh 는 자기 실패를 직접 알리지만, 그 전에 죽는 실패(테스트·빌드·scp·SSH)는 여기서만 잡힌다.
+      - name: 실패 알림 (deploy.sh 밖 실패 포함 — 테스트·빌드·SSH)
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "DEPLOY_WEBHOOK_URL 미설정 — 알림 생략"; exit 0; }
+          SHORT="$(echo '${{ env.DEPLOY_SHA }}' | cut -c1-7)"
+          curl -sS -m 10 -H 'Content-Type: application/json' \
+            -d "{\"content\":\"❌ **배포 워크플로 실패** — \`${SHORT}\` · 실패 단계/사유는 로그 확인: ${RUN_URL}\"}" \
+            "$WEBHOOK" || true

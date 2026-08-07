@@ -1,0 +1,8 @@
+# Pi: ~/monitoring/prometheus/targets/spring-ytcreator.yml
+# job=spring-apps (metrics_path=/actuator/prometheus) 의 file_sd 대상.
+# 파일을 드롭하면 Prometheus 가 30초 안에 자동 인식한다 — 재시작 불필요.
+- targets: ["host.docker.internal:20200"]
+  labels:
+    project: ytcreator
+    service: ytcreator-backend
+    env: prod

@@ -1,0 +1,44 @@
+# /etc/systemd/system/ytcreator-tunnel.service  (모니터링 서버 rasp4 에만 존재)
+#
+# 프로젝트마다 앱 VM 이 다르므로 터널 유닛도 프로젝트마다 하나씩 만든다.
+# 로컬 포워딩(-L)은 Pi 쪽 포트 블록(20200~)을 쓰고,
+# 역포워딩(-R 3100)은 "앱 VM 루프백 3100 → Pi Loki" 방향이라 VM 이 다르면 충돌하지 않는다.
+#
+# ⚠️ <> 자리는 설치할 때 Pi 에서 채운다 — IP·계정은 저장소에 커밋하지 않는다.
+#    앱 VM 호스트는 tailnet MagicDNS 이름(ytcreator-app)을 권장. tailnet 미도입이면 공인 IP.
+[Unit]
+Description=SSH tunnel to ytcreator OCI app VM (metrics scrape + loki push)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=<PI_USER>
+ExecStart=/usr/bin/ssh -N \
+  -i /home/<PI_USER>/.ssh/id_ed25519 \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -o StrictHostKeyChecking=accept-new \
+  -L 0.0.0.0:20200:localhost:8080 \
+  -L 0.0.0.0:20201:localhost:9100 \
+  -L 0.0.0.0:20202:__DB_PRIVATE_IP__:9104 \
+  -L 0.0.0.0:20203:__DB_PRIVATE_IP__:9100 \
+  -R 127.0.0.1:3100:127.0.0.1:3100 \
+  ubuntu@<APP_VM_HOST>
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+
+# 설치:
+#   sudo cp ytcreator-tunnel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ytcreator-tunnel
+# 검증 (Pi 에서):
+#   curl -s localhost:20200/actuator/prometheus | head -3
+#   curl -s localhost:20201/metrics | head -3
+#   curl -s localhost:20202/metrics | head -3
+#   curl -s localhost:20203/metrics | head -3
+#
+# ⚠️ -R 3100 이 뜨려면 Pi 공개키가 앱 VM 의 ~/.ssh/authorized_keys 에 등록돼 있어야 한다.
+#    ExitOnForwardFailure=yes 때문에 포워딩 하나라도 실패하면 프로세스가 죽고 15초 뒤 재시작한다
+#    (= 설정 오류가 조용히 묻히지 않는다. journalctl -u ytcreator-tunnel -f 로 확인).

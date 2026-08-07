@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: ytcreator-backend
+
+  # 프로파일 미지정 시 local (운영은 SPRING_PROFILES_ACTIVE=prod 로 기동)
+  profiles:
+    default: local
+
+  jpa:
+    open-in-view: false
+
+# 모듈 간 이벤트 아웃박스: spring-modulith-starter-jpa 는 EVENT_PUBLICATION 을 JPA 엔티티로 관리한다
+# (JDBC 방식의 schema-initialization 프로퍼티는 이 구성에서 동작하지 않는다).
+# 테스트는 ddl-auto:create-drop 으로 자동 생성되지만, 운영은 validate 이므로
+# 첫 배포 전에 EVENT_PUBLICATION 테이블을 수동 DDL 로 만들어야 한다 → Phase 4 (db-migrate.yml)
+
+# 로그 상관관계 — MDC requestId 를 레벨 옆에 노출 (키 계약: docs/ops/logging.md §3.3)
+logging:
+  pattern:
+    level: "%5p [%X{requestId:-}]"
+  level:
+    # ⚠️ 익명키 유출 방지 — 내리지 마라. Tomcat 은 DEBUG 에서 수신 요청을 통째로 덤프하고
+    # 그 안에 X-Anonymous-Key 원문이 들어 있다(Http11InputBuffer, auth 구현 라운드 4 실측).
+    # 우리 필터가 값을 읽기도 전이라 애플리케이션 코드로는 막을 수 없다 —
+    # root 를 DEBUG 로 내려도 이 하한이 남아야 auth.md U6(원문 비노출)가 지켜진다.
+    # 진짜 wire 를 봐야 하는 장애 상황에서만 일시적으로 풀고, 끝나면 되돌린다.
+    org.apache.coyote: INFO
+
+# 모니터링 — Prometheus 스크레이프 엔드포인트 노출.
+# 외부(인터넷)로는 Caddy 가 /actuator/* 를 403 차단하고, 수집은 SSH 터널로만 접근한다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,modulith
+  endpoint:
+    health:
+      show-details: never
+  # Grafana 알림 룰의 application= 셀렉터가 이 태그를 잡는다. 없으면 알림이 아무것도 못 잡는다.
+  metrics:
+    tags:
+      application: ${spring.application.name}

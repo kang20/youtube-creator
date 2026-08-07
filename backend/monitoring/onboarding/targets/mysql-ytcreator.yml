@@ -1,0 +1,7 @@
+# Pi: ~/monitoring/prometheus/targets/mysql-ytcreator.yml
+# DB VM 의 mysqld_exporter — 앱 VM 을 경유하는 터널 포트로 붙는다.
+- targets: ["host.docker.internal:20202"]
+  labels:
+    project: ytcreator
+    service: ytcreator-mysql
+    env: prod

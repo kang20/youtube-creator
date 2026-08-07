@@ -1,0 +1,12 @@
+= ytcreator API 문서
+:doctype: book
+:icons: font
+:source-highlighter: highlightjs
+:toc: left
+:toclevels: 2
+:sectlinks:
+
+include::common.adoc[]
+
+// 도메인 API 는 구현 시 여기에 include 한다
+// include::{도메인}.adoc[]

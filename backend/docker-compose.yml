@@ -1,0 +1,24 @@
+# 로컬 개발용 MySQL. application-local.yml 의 spring.docker.compose 가 앱 기동 시 자동으로 띄운다.
+# 운영은 backend/deploy/docker-compose.db.yml 을 쓴다(이 파일이 아니다).
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: ytcreator-mysql-local
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ytcreator
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "3307:3306"     # 호스트 3306 이 이미 쓰이는 경우가 많아 3307 로 매핑
+    volumes:
+      - ytcreator-mysql-local-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  ytcreator-mysql-local-data:

@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{PROJECT}} — 설계 의사결정 기록</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --paper:#E6E9ED;
+  --card:#F5F6F8;
+  --ink:#13161B;
+  --ink-2:#3F4650;
+  --ink-3:#6C737E;
+  --rule:#C2C8D1;
+  --accept:#1B45C8;
+  --open:#8E6410;
+  --reject:#9E3A32;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'IBM Plex Sans KR','Pretendard','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-weight:400;
+  font-size:16px;
+  line-height:1.72;
+  letter-spacing:-0.01em;
+}
+.wrap{max-width:760px;margin:0 auto;padding:0 20px 96px}
+
+/* ---------- masthead ---------- */
+.mast{padding:56px 0 28px;border-bottom:2px solid var(--ink)}
+.mast .kicker{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:18px;
+}
+.mast h1{
+  font-size:clamp(28px,7.4vw,44px);line-height:1.16;font-weight:700;
+  letter-spacing:-0.035em;margin:0 0 14px;
+}
+.mast h1 em{font-style:normal;display:block;font-size:.52em;font-weight:500;color:var(--ink-2);letter-spacing:-0.02em;margin-top:10px}
+.mast .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);line-height:2}
+.mast .meta b{font-weight:600;color:var(--ink)}
+
+/* ---------- tally ---------- */
+.tally{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 0}
+.tally div{
+  font-family:var(--mono);font-size:12px;font-weight:500;
+  padding:6px 11px;border:1px solid var(--rule);border-radius:3px;background:var(--card);
+}
+.tally div span{font-weight:600}
+.t-a span{color:var(--accept)} .t-o span{color:var(--open)} .t-r span{color:var(--reject)}
+
+/* ---------- toc ---------- */
+nav.toc{margin:34px 0 0;padding:22px 0 0;border-top:1px solid var(--rule)}
+nav.toc h2{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-weight:500;margin:0 0 14px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+nav.toc li{counter-increment:toc;border-bottom:1px solid var(--rule)}
+nav.toc a{
+  display:flex;gap:12px;align-items:baseline;padding:11px 2px;
+  color:var(--ink);text-decoration:none;font-size:15px;
+}
+nav.toc a::before{
+  content:counter(toc,decimal-leading-zero);
+  font-family:var(--mono);font-size:12px;color:var(--ink-3);flex:0 0 auto;
+}
+nav.toc a:hover{color:var(--accept)}
+
+/* ---------- sections ---------- */
+section{padding:52px 0 0;scroll-margin-top:12px}
+.eyebrow{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);display:flex;align-items:center;gap:10px;margin-bottom:12px;
+}
+.eyebrow::after{content:"";height:1px;background:var(--rule);flex:1}
+h2.sec{font-size:clamp(21px,5vw,27px);line-height:1.3;font-weight:700;letter-spacing:-0.03em;margin:0 0 4px}
+h3{font-size:17px;font-weight:600;letter-spacing:-0.02em;margin:34px 0 10px}
+p{margin:0 0 14px}
+.lede{color:var(--ink-2);font-size:15.5px;margin-bottom:22px}
+
+/* ---------- question ---------- */
+.q{
+  border-left:3px solid var(--ink);padding:2px 0 2px 15px;margin:24px 0 22px;
+  font-size:16px;font-weight:500;
+}
+.q b{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);display:block;font-weight:500;margin-bottom:3px}
+
+/* ---------- option cards ---------- */
+.opt{
+  background:var(--card);border:1px solid var(--rule);border-radius:4px;
+  padding:16px 17px 14px;margin:0 0 12px;
+}
+.opt-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+.chip{
+  font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.1em;
+  padding:3px 8px;border-radius:2px;color:#fff;white-space:nowrap;
+}
+.c-a{background:var(--accept)} .c-r{background:var(--reject)} .c-o{background:var(--open)} .c-n{background:var(--ink-3)}
+.opt-head h4{margin:0;font-size:15.5px;font-weight:600;letter-spacing:-0.02em}
+.opt ul{margin:0;padding:0;list-style:none}
+.opt li{
+  position:relative;padding-left:19px;font-size:14.5px;line-height:1.62;
+  color:var(--ink-2);margin-bottom:4px;
+}
+.opt li::before{position:absolute;left:0;font-family:var(--mono);font-size:12px;top:1px}
+.opt li.p::before{content:"+";color:var(--accept)}
+.opt li.c::before{content:"−";color:var(--reject)}
+.opt li.n::before{content:"·";color:var(--ink-3)}
+
+/* ---------- cue (signature) ---------- */
+.cue{
+  border:1.5px solid var(--ink);border-radius:4px;background:transparent;
+  margin:22px 0 6px;overflow:hidden;
+}
+.cue-top{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:9px 14px;border-bottom:1px solid var(--rule);background:var(--card);
+}
+.cue-id{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.08em}
+.cue-arrow{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.02em}
+.cue-body{padding:15px 15px 14px}
+.cue-body .decision{font-size:16.5px;font-weight:600;line-height:1.55;letter-spacing:-0.025em;margin:0 0 10px}
+.cue-body .why{font-size:14.5px;color:var(--ink-2);margin:0}
+.cue-body .why b{
+  font-family:var(--mono);font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:500;display:block;margin-bottom:2px;
+}
+.cue.pend{border-color:var(--open);border-style:dashed}
+
+/* ---------- flow diagram ---------- */
+.flow{margin:26px 0 10px;counter-reset:st}
+.step{
+  position:relative;padding:0 0 0 46px;margin-bottom:14px;
+}
+.step::before{
+  counter-increment:st;content:counter(st,decimal-leading-zero);
+  position:absolute;left:0;top:1px;width:30px;height:30px;border-radius:50%;
+  border:1.5px solid var(--ink);background:var(--paper);
+  font-family:var(--mono);font-size:11.5px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;
+}
+.step::after{
+  content:"";position:absolute;left:15px;top:34px;bottom:-16px;width:1.5px;background:var(--rule);
+}
+.step:last-child::after{display:none}
+.step .who{
+  font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);display:block;
+}
+.step .what{font-size:15px;line-height:1.6}
+.step.pause::before{border-color:var(--open);border-style:dashed;color:var(--open)}
+.step.pause .who{color:var(--open)}
+
+/* ---------- state machine ---------- */
+.states{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:20px 0 8px}
+.st{
+  font-family:var(--mono);font-size:12px;font-weight:500;padding:6px 10px;
+  border:1px solid var(--ink);border-radius:3px;background:var(--card);white-space:nowrap;
+}
+.st.wait{border-color:var(--open);color:var(--open);border-style:dashed}
+.st.done{background:var(--ink);color:var(--paper)}
+.arw{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+
+/* ---------- layers ---------- */
+.layer{
+  display:flex;gap:13px;padding:15px 0;border-top:1px solid var(--rule);
+}
+.layer:last-of-type{border-bottom:1px solid var(--rule)}
+.layer .n{
+  font-family:var(--mono);font-size:12px;font-weight:600;flex:0 0 auto;
+  width:26px;height:26px;border-radius:3px;display:flex;align-items:center;justify-content:center;
+  background:var(--ink);color:var(--paper);margin-top:2px;
+}
+.layer.off .n{background:var(--open)}
+.layer .txt{flex:1}
+.layer .txt h4{margin:0 0 3px;font-size:15.5px;font-weight:600;letter-spacing:-0.02em}
+.layer .txt p{margin:0;font-size:14.5px;color:var(--ink-2);line-height:1.62}
+
+/* ---------- callout ---------- */
+.note{
+  background:var(--card);border:1px solid var(--rule);border-left:3px solid var(--open);
+  border-radius:3px;padding:14px 15px;margin:22px 0;font-size:14.5px;line-height:1.65;
+}
+.note b{font-family:var(--mono);font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--open);display:block;margin-bottom:4px;font-weight:600}
+.note.warn{border-left-color:var(--reject)}
+.note.warn b{color:var(--reject)}
+
+/* ---------- open items ---------- */
+.todo{list-style:none;margin:22px 0 0;padding:0;counter-reset:td}
+.todo li{
+  counter-increment:td;display:flex;gap:13px;padding:14px 0;border-bottom:1px solid var(--rule);
+}
+.todo li::before{
+  content:"Q" counter(td,decimal-leading-zero);
+  font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink-3);
+  flex:0 0 auto;padding-top:2px;
+}
+.todo .tt{font-size:15.5px;font-weight:600;letter-spacing:-0.02em;display:block;margin-bottom:2px}
+.todo .td{font-size:14.5px;color:var(--ink-2);line-height:1.62}
+.todo .blk{color:var(--reject);font-weight:500}
+
+/* ---------- appendix table ---------- */
+.rows{margin:20px 0 0;border-top:1px solid var(--rule)}
+.row{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--rule);font-size:14.5px}
+.row .k{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);flex:0 0 74px;padding-top:4px;letter-spacing:.06em}
+.row .v{flex:1;line-height:1.62}
+.row .v b{font-weight:600}
+
+
+
+/* ---------- decision digest ---------- */
+.digest{margin:34px 0 8px}
+.digest .dg-head{
+  display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  padding-bottom:10px;border-bottom:2px solid var(--ink);
+}
+.digest .dg-head h2{
+  margin:0;font-size:19px;font-weight:700;letter-spacing:-0.03em;
+}
+.digest .dg-head .cnt{
+  font-family:var(--mono);font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accept);font-weight:600;
+}
+.digest > p.hint{
+  margin:11px 0 0;font-size:13.5px;color:var(--ink-3);line-height:1.6;
+}
+.dg-row{
+  display:grid;grid-template-columns:52px 1fr auto;gap:13px;align-items:baseline;
+  padding:12px 6px 12px 2px;border-bottom:1px solid var(--rule);
+  text-decoration:none;color:inherit;
+  transition:background .13s ease,padding-left .13s ease;
+}
+.dg-row:hover{background:var(--card);padding-left:8px}
+.dg-row .dg-id{
+  font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.05em;
+  color:var(--accept);
+}
+.dg-row .dg-txt{font-size:15px;line-height:1.55;letter-spacing:-0.015em}
+.dg-row .dg-txt b{font-weight:600}
+.dg-row .dg-tag{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--ink-3);
+  white-space:nowrap;justify-self:end;
+}
+.dg-row:hover .dg-tag{color:var(--accept)}
+.dg-foot{
+  display:flex;gap:9px;align-items:flex-start;margin-top:14px;
+  padding:11px 13px;border-left:2px solid var(--open);background:var(--card);
+}
+.dg-foot .lb{
+  font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.1em;
+  color:var(--open);white-space:nowrap;padding-top:2px;
+}
+.dg-foot p{margin:0;font-size:13.5px;color:var(--ink-2);line-height:1.6}
+.dg-foot a{color:var(--ink);text-decoration:underline;text-underline-offset:2px}
+@media (max-width:560px){
+  .dg-row{grid-template-columns:46px 1fr;row-gap:5px}
+  .dg-row .dg-tag{grid-column:2;justify-self:start}
+}
+
+/* ---------- system map ---------- */
+.sysmap{margin:44px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 22px}
+.legend span{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);display:flex;align-items:center;gap:7px}
+.legend i{width:22px;height:0;border-top-width:2px;border-top-style:solid;display:inline-block}
+.legend i.own{border-color:var(--ink)}
+.legend i.ext{border-color:var(--ink-3);border-top-style:dashed}
+.legend b.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.legend b.d-a{background:var(--accept)} .legend b.d-o{background:var(--open)}
+
+.diagram{
+  border:1px solid var(--rule);border-radius:5px;background:var(--card);
+  padding:22px 18px;margin:0 0 8px;
+}
+.tier{margin:0 0 10px}
+.tier:last-child{margin-bottom:0}
+.tier-label{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 9px;padding-left:2px;
+}
+.nodes{display:flex;gap:10px;flex-wrap:wrap}
+.node{
+  flex:1 1 0;min-width:150px;border:1.5px solid var(--ink);border-radius:4px;
+  background:var(--paper);padding:12px 13px;position:relative;
+}
+.node.ext{border-style:dashed;border-color:var(--ink-3)}
+.node .role{
+  font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);display:block;margin-bottom:3px;
+}
+.node .name{font-size:15px;font-weight:600;letter-spacing:-0.02em;line-height:1.35;display:block}
+.node .sub{font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-top:5px}
+.node .pin{
+  position:absolute;top:11px;right:11px;width:9px;height:9px;border-radius:50%;
+}
+.pin.a{background:var(--accept)} .pin.o{background:var(--open)}
+.node.own .badge,.node.ext .badge{
+  font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.1em;
+  padding:2px 6px;border-radius:2px;display:inline-block;margin-top:8px;
+}
+.node.own .badge{background:var(--ink);color:var(--paper)}
+.node.ext .badge{border:1px solid var(--ink-3);color:var(--ink-3)}
+
+.link-row{
+  display:flex;justify-content:center;align-items:center;gap:8px;
+  padding:7px 0;font-family:var(--mono);font-size:11px;color:var(--ink-3);
+}
+.link-row .ln{
+  display:flex;align-items:center;gap:7px;padding:4px 10px;
+  border:1px solid var(--rule);border-radius:20px;background:var(--paper);
+  font-size:11px;letter-spacing:.02em;
+}
+.link-row .ln b{font-weight:600;color:var(--ink)}
+.vsep{
+  text-align:center;font-family:var(--mono);font-size:14px;color:var(--rule);
+  line-height:1;padding:2px 0;
+}
+
+/* two-queue callout inside diagram */
+.queues{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+.qbox{
+  flex:1 1 0;min-width:150px;border:1.5px solid var(--accept);border-radius:4px;
+  background:rgba(27,69,200,.05);padding:11px 12px;
+}
+.qbox .role{color:var(--accept)}
+.qbox .name{font-size:14px}
+
+/* ---------- status board ---------- */
+.board{margin:30px 0 0;border-top:2px solid var(--ink)}
+.brow{
+  display:grid;grid-template-columns:22px 1.35fr 1fr auto;gap:12px;align-items:start;
+  padding:13px 0;border-bottom:1px solid var(--rule);
+}
+.brow .pin2{width:9px;height:9px;border-radius:50%;margin-top:7px}
+.pin2.a{background:var(--accept)} .pin2.o{background:var(--open)}
+.brow .comp{font-size:15px;font-weight:600;letter-spacing:-0.02em}
+.brow .comp small{display:block;font-family:var(--mono);font-size:11px;font-weight:400;color:var(--ink-3);letter-spacing:.04em;margin-top:2px}
+.brow .pick{font-size:14px;color:var(--ink-2);line-height:1.5}
+.brow .pick b{color:var(--ink);font-weight:600}
+.brow .stat{
+  font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.1em;
+  padding:4px 9px;border-radius:3px;white-space:nowrap;justify-self:end;
+}
+.stat.done{background:var(--accept);color:#fff}
+.stat.open{border:1px solid var(--open);color:var(--open)}
+.bhead{
+  display:grid;grid-template-columns:22px 1.35fr 1fr auto;gap:12px;
+  padding:0 0 9px;font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3);
+}
+.bhead span:last-child{justify-self:end}
+
+@media (max-width:560px){
+  .brow,.bhead{grid-template-columns:16px 1fr auto;}
+  .brow .pick{grid-column:2 / -1;padding-top:2px}
+  .bhead span:nth-child(3){display:none}
+}
+
+/* ---------- quiz ---------- */
+.quiz{
+  margin:34px 0 6px;padding:0;border:1.5px solid var(--ink);border-radius:4px;
+  background:var(--card);overflow:hidden;
+}
+.quiz-head{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:9px 14px;border-bottom:1px solid var(--rule);background:var(--paper);
+}
+.quiz-tag{
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink);
+}
+.quiz-topic{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.06em}
+.quiz-body{padding:15px 15px 14px}
+.quiz-stem{font-size:16px;font-weight:600;line-height:1.6;letter-spacing:-0.02em;margin:0 0 13px}
+.quiz-opts{counter-reset:qo;display:flex;flex-direction:column;gap:7px}
+.qo{
+  counter-increment:qo;position:relative;display:block;width:100%;text-align:left;
+  font-family:var(--sans);font-size:14.8px;line-height:1.55;color:var(--ink);
+  background:var(--paper);border:1px solid var(--rule);border-radius:3px;
+  padding:11px 13px 11px 40px;cursor:pointer;
+  transition:border-color .14s ease,background .14s ease;
+}
+.qo::before{
+  content:counter(qo,upper-alpha);position:absolute;left:12px;top:11px;
+  font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink-3);
+}
+.qo:hover:not(:disabled){border-color:var(--ink);background:#fff}
+.qo:focus-visible{outline:2px solid var(--accept);outline-offset:2px}
+.qo:disabled{cursor:default}
+.qo.ok{border-color:var(--accept);border-width:1.5px;background:rgba(27,69,200,.07)}
+.qo.ok::before{color:var(--accept)}
+.qo.no{border-color:var(--reject);border-width:1.5px;background:rgba(158,58,50,.07);opacity:.85}
+.qo.no::before{color:var(--reject)}
+.qo.dim{opacity:.45}
+.qo .mk{
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.1em;
+  float:right;margin-left:10px;
+}
+.qo.ok .mk{color:var(--accept)}
+.qo.no .mk{color:var(--reject)}
+.quiz-fb{
+  margin:0;max-height:0;overflow:hidden;
+  transition:max-height .3s ease,margin .3s ease;
+}
+.quiz-fb.on{max-height:520px;margin-top:13px}
+.quiz-fb .verdict{
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;display:block;margin-bottom:4px;
+}
+.quiz-fb.right .verdict{color:var(--accept)}
+.quiz-fb.wrong .verdict{color:var(--reject)}
+.quiz-fb p{margin:0;font-size:14.5px;line-height:1.66;color:var(--ink-2)}
+.quiz-fb p b{color:var(--ink);font-weight:600}
+
+/* ---------- score ---------- */
+.score{
+  margin:52px 0 0;padding:20px 18px;border:1.5px solid var(--ink);border-radius:4px;
+  background:var(--card);
+}
+.score h3{margin:0 0 4px;font-size:17px;font-weight:700;letter-spacing:-0.025em}
+.score .num{font-family:var(--mono);font-size:34px;font-weight:600;letter-spacing:-0.03em;line-height:1.2}
+.score .num small{font-size:17px;color:var(--ink-3);font-weight:400}
+.score .bar{display:flex;gap:4px;margin:14px 0 12px}
+.score .bar i{flex:1;height:6px;border-radius:2px;background:var(--rule)}
+.score .bar i.hit{background:var(--accept)}
+.score .bar i.miss{background:var(--reject)}
+.score p{margin:0;font-size:14.5px;color:var(--ink-2)}
+.score button{
+  margin-top:14px;font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.06em;
+  background:transparent;border:1px solid var(--ink);border-radius:3px;color:var(--ink);
+  padding:8px 14px;cursor:pointer;
+}
+.score button:hover{background:var(--ink);color:var(--paper)}
+.score button:focus-visible{outline:2px solid var(--accept);outline-offset:2px}
+
+code{font-family:var(--mono);font-size:.9em;background:rgba(19,22,27,.06);padding:1px 5px;border-radius:2px}
+
+footer{margin-top:64px;padding-top:22px;border-top:2px solid var(--ink);font-family:var(--mono);font-size:11.5px;color:var(--ink-3);line-height:1.9}
+
+@media (max-width:520px){
+  body{font-size:15.5px}
+  .wrap{padding:0 16px 72px}
+  .step{padding-left:40px}
+  .step::before{width:26px;height:26px;font-size:10.5px}
+  .step::after{left:13px;top:30px}
+}
+@media (prefers-reduced-motion:no-preference){
+  section{animation:rise .5s ease both;animation-timeline:view();animation-range:entry 0% cover 18%}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ============ MASTHEAD ============ -->
+<header class="mast">
+  <div class="kicker">Design Decision Record</div>
+  <h1>{{프로젝트명}}<em>{{부제 — 어느 범위의 결정을 담는지}}</em></h1>
+  <div class="meta">
+    작성일 &nbsp;<b>{{YYYY-MM-DD}}</b><br>
+    범위 &nbsp;&nbsp;&nbsp;<b>{{범위}}</b><br>
+    플랫폼 &nbsp;<b>{{스택 요약}}</b>
+  </div>
+  <div class="tally">
+    <div class="t-a">확정 <span>1</span></div>
+    <div class="t-r">검토 후 기각 <span>1</span></div>
+    <div class="t-o">보류·미해결 <span>1</span></div>
+    <div>확인 문제 <span>1</span></div>
+  </div>
+</header>
+
+<!-- ============ 채택한 결정 요약 (맨 앞) ============ -->
+<section class="digest">
+  <div class="dg-head">
+    <h2>채택한 결정</h2>
+    <span class="cnt">Adopted · 1</span>
+  </div>
+  <p class="hint">확정된 것만 모았다. 각 줄을 누르면 검토 과정과 기각된 대안이 있는 본문으로 이동한다.</p>
+
+  <a class="dg-row" href="#s1">
+    <span class="dg-id">D-01</span>
+    <span class="dg-txt">{{결정 한 줄 — 핵심어만 <b>굵게</b>}}</span>
+    <span class="dg-tag">{{범주}}</span>
+  </a>
+
+  <div class="dg-foot">
+    <span class="lb">보류</span>
+    <p><b>{{D-NN 주제}}</b> — {{왜 결론이 안 났는지}} <a href="#s1">§1</a></p>
+  </div>
+</section>
+
+
+<!-- ============ 00 · SYSTEM MAP (선택) ============ -->
+<!-- 시스템 구성이 있는 프로젝트라면 목차 앞에 배치. references/components.md 참고 -->
+
+<!-- ============ TOC ============ -->
+<nav class="toc">
+  <ol>
+    <li><a href="#s1">{{첫 번째 주제}}</a></li>
+  </ol>
+</nav>
+
+<!-- ============ 01 ============ -->
+<section id="s1">
+  <div class="eyebrow">01 / {{범주}}</div>
+  <h2 class="sec">{{주제 제목}}</h2>
+  <p class="lede">{{이 장에서 무엇을 다루는지 한두 문장}}</p>
+
+  <div class="q"><b>고민</b>{{고민을 의문문 한 줄로}}</div>
+
+  <div class="opt">
+    <div class="opt-head"><span class="chip c-r">기각</span><h4>{{버린 선택지}}</h4></div>
+    <ul>
+      <li class="p">{{그럼에도 있었던 장점}}</li>
+      <li class="c">{{기각을 결정지은 그 한 가지}}</li>
+    </ul>
+  </div>
+
+  <div class="opt">
+    <div class="opt-head"><span class="chip c-a">채택</span><h4>{{고른 선택지}}</h4></div>
+    <ul>
+      <li class="p">{{장점}}</li>
+      <li class="c">{{대가 — 채택안에도 반드시 적는다}}</li>
+      <li class="n">{{참고}}</li>
+    </ul>
+  </div>
+
+  <div class="cue">
+    <div class="cue-top">
+      <span class="cue-id">D-01</span>
+      <span class="cue-arrow">{{검토한 것들}} --&gt; {{결론}}</span>
+    </div>
+    <div class="cue-body">
+      <p class="decision">{{결정 한 줄}}</p>
+      <p class="why"><b>이유</b>{{무엇을 얻고 무엇을 대가로 치렀는지}}</p>
+    </div>
+  </div>
+
+  <div class="quiz" data-ans="0" data-exp="{{해설 — 큰따옴표 금지, b·code 태그는 가능}}">
+    <div class="quiz-head">
+      <span class="quiz-tag">확인 문제 01</span>
+      <span class="quiz-topic">{{범주}}</span>
+    </div>
+    <div class="quiz-body">
+      <p class="quiz-stem">{{판단 근거를 묻는 질문}}</p>
+      <div class="quiz-opts">
+        <button class="qo" data-i="0">{{정답}}</button>
+        <button class="qo" data-i="1">{{흔한 오해}}</button>
+        <button class="qo" data-i="2">{{그럴듯한 오답}}</button>
+        <button class="qo" data-i="3">{{그럴듯한 오답}}</button>
+      </div>
+      <div class="quiz-fb" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 미해결 ============ -->
+<section id="s-open">
+  <div class="eyebrow">NN / 다음</div>
+  <h2 class="sec">미해결 과제</h2>
+  <p class="lede">결론이 나지 않았거나, 외부 확인이 필요해 확정할 수 없는 항목들.</p>
+  <ol class="todo">
+    <li><div>
+      <span class="tt">{{항목 제목}}</span>
+      <span class="td"><span class="blk">차단 요인.</span> {{왜 막혀 있는지 + 어떻게 뚫을지}}</span>
+    </div></li>
+  </ol>
+</section>
+
+<div class="score" id="score">
+  <h3>확인 문제 결과</h3>
+  <div class="num"><span id="hit">0</span><small> / <span id="tot">0</span></small></div>
+  <div class="bar" id="bar"></div>
+  <p id="msg">아직 푼 문제가 없어요. 각 장 끝의 확인 문제를 풀면 여기에 결과가 모여요.</p>
+  <button type="button" id="reset">다시 풀기</button>
+</div>
+
+<footer>
+  <p>{{프로젝트}} · 설계 의사결정 기록</p>
+  <p>{{날짜}} 대화 기준 · 확정 1 / 검토 후 기각 1 / 보류·미해결 1 / 확인 문제 1</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var quizzes = Array.prototype.slice.call(document.querySelectorAll('.quiz'));
+  var bar = document.getElementById('bar');
+  var hitEl = document.getElementById('hit');
+  var msgEl = document.getElementById('msg');
+  var state = [];
+
+  quizzes.forEach(function(){
+    var i = document.createElement('i');
+    bar.appendChild(i);
+    state.push(null);
+  });
+
+  var totEl = document.getElementById('tot');
+  if (totEl) totEl.textContent = quizzes.length;
+
+  function render(){
+    var done = 0, hit = 0;
+    state.forEach(function(v, i){
+      var seg = bar.children[i];
+      seg.className = '';
+      if (v === true){ seg.className = 'hit'; done++; hit++; }
+      else if (v === false){ seg.className = 'miss'; done++; }
+    });
+    hitEl.textContent = hit;
+    if (done === 0){
+      msgEl.textContent = '아직 푼 문제가 없어요. 각 장 끝의 확인 문제를 풀면 여기에 결과가 모여요.';
+    } else if (done < state.length){
+      msgEl.textContent = done + '문제 풀었어요. ' + (state.length - done) + '문제 남았습니다.';
+    } else if (hit === state.length){
+      msgEl.textContent = '전부 맞혔어요. 설계 근거를 정확히 잡고 계십니다.';
+    } else {
+      msgEl.textContent = '틀린 문제의 해설을 다시 읽어보세요. 그 부분이 나중에 구현에서 걸릴 지점입니다.';
+    }
+  }
+
+  quizzes.forEach(function(quiz, qi){
+    var ans = parseInt(quiz.getAttribute('data-ans'), 10);
+    var exp = quiz.getAttribute('data-exp');
+    var opts = Array.prototype.slice.call(quiz.querySelectorAll('.qo'));
+    var fb = quiz.querySelector('.quiz-fb');
+
+    opts.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if (state[qi] !== null) return;
+        var pick = parseInt(btn.getAttribute('data-i'), 10);
+        var right = (pick === ans);
+        state[qi] = right;
+
+        opts.forEach(function(b){
+          var i = parseInt(b.getAttribute('data-i'), 10);
+          b.disabled = true;
+          if (i === ans){
+            b.classList.add('ok');
+            b.insertAdjacentHTML('beforeend', '<span class="mk">정답</span>');
+          } else if (i === pick){
+            b.classList.add('no');
+            b.insertAdjacentHTML('beforeend', '<span class="mk">선택</span>');
+          } else {
+            b.classList.add('dim');
+          }
+        });
+
+        fb.className = 'quiz-fb on ' + (right ? 'right' : 'wrong');
+        fb.innerHTML = '<span class="verdict">' + (right ? '맞았습니다' : '다시 확인') + '</span><p>' + exp + '</p>';
+        render();
+      });
+    });
+  });
+
+  document.getElementById('reset').addEventListener('click', function(){
+    quizzes.forEach(function(quiz, qi){
+      state[qi] = null;
+      var fb = quiz.querySelector('.quiz-fb');
+      fb.className = 'quiz-fb';
+      fb.innerHTML = '';
+      quiz.querySelectorAll('.qo').forEach(function(b){
+        b.disabled = false;
+        b.classList.remove('ok','no','dim');
+        var mk = b.querySelector('.mk');
+        if (mk) mk.remove();
+      });
+    });
+    render();
+    document.getElementById('score').scrollIntoView({behavior:'smooth', block:'center'});
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

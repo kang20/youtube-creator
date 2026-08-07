@@ -1,0 +1,23 @@
+# 로컬 개발 전용 (bootRun / IDE Run)
+spring:
+  # 앱 실행 시 docker-compose.yml 의 MySQL 컨테이너를 자동 기동한다.
+  # 테스트(@SpringBootTest)는 test/resources/application.yml 이 우선되어 H2 를 쓴다.
+  # Docker Desktop 이 실행 중이어야 한다.
+  docker:
+    compose:
+      enabled: true
+      file: docker-compose.yml
+
+  # docker-compose 가 기동한 컨테이너의 연결정보(ConnectionDetails)가 아래 값을 자동 override 한다.
+  # 아래는 Docker 없이 수동 MySQL 로 띄울 때의 fallback (호스트 포트 3307 = compose 매핑).
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3307/ytcreator?serverTimezone=UTC&characterEncoding=UTF-8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    properties:
+      hibernate:
+        format_sql: true

@@ -1,0 +1,97 @@
+name: Rollback Backend
+
+# 무중단 롤백 — 담당자가 Actions 화면에서 드롭다운 선택 + [Run workflow] 만 누르면 실행된다.
+#   previous     : 정지 상태로 남은 직전 색 컨테이너로 즉시 전환 (수 초)
+#   specific-sha : 특정 커밋 이미지로 재배포 (deploy.sh 무중단 경로, 1~2분)
+# 디스코드 봇(backend/monitoring/rollback-bot)도 이 워크플로를 GitHub API 로 dispatch 한다.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "롤백 대상"
+        type: choice
+        options:
+          - previous
+          - specific-sha
+        default: previous
+      sha:
+        description: "specific-sha 선택 시 되돌릴 커밋 SHA (previous 면 무시)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  # 배포/롤백이 겹쳐 같은 VM 을 동시에 만지지 않게 직렬화
+  group: deploy-backend-vm
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: VM 에서 롤백 실행 (.env 는 GitHub 시크릿에서 재생성)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          TARGET: ${{ inputs.target }}
+          SHA: ${{ inputs.sha }}
+          DOMAIN: ${{ vars.DOMAIN }}
+          DB_HOST: ${{ vars.DB_HOST }}
+          JPA_DDL_AUTO: ${{ vars.JPA_DDL_AUTO }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          envs: TARGET,SHA,DOMAIN,DB_HOST,JPA_DDL_AUTO,DB_PASSWORD,S3_ACCESS_KEY,S3_SECRET_KEY,DISCORD_WEBHOOK_URL,DEPLOY_WEBHOOK_URL
+          script: |
+            set -e
+            cd ~/ytcreator
+            umask 077
+
+            # specific-sha 면 태그를 해당 커밋으로, previous 면 latest(previous 는 IMAGE_TAG 미사용).
+            TAG=latest
+            if [ "$TARGET" = "specific-sha" ]; then
+              case "$SHA" in
+                ''|*[!0-9A-Fa-f]* ) echo "::error:: 유효하지 않은 SHA: '$SHA'"; exit 1 ;;
+              esac
+              TAG="$SHA"
+            fi
+
+            {
+              echo "DOMAIN=$DOMAIN"
+              echo "DB_HOST=$DB_HOST"
+              echo "DB_PASSWORD=$DB_PASSWORD"
+              echo "JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}"
+              echo "S3_ACCESS_KEY=$S3_ACCESS_KEY"
+              echo "S3_SECRET_KEY=$S3_SECRET_KEY"
+              echo "DISCORD_WEBHOOK_URL=$DISCORD_WEBHOOK_URL"
+              echo "DEPLOY_WEBHOOK_URL=$DEPLOY_WEBHOOK_URL"
+              echo "IMAGE_TAG=$TAG"
+              echo "SHORT_SHA=$(echo "$TAG" | cut -c1-7)"
+              echo "RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            } > .env
+
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            chmod +x rollback.sh deploy.sh
+            bash rollback.sh "$TARGET" "$SHA"
+
+      # rollback.sh 는 자기 실패를 직접 알리지만, 그 전에 죽는 실패(SSH 접속 등)는 여기서만 잡힌다.
+      - name: 실패 알림 (rollback.sh 밖 실패 포함 — SSH 등)
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TARGET: ${{ inputs.target }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "DEPLOY_WEBHOOK_URL 미설정 — 알림 생략"; exit 0; }
+          curl -sS -m 10 -H 'Content-Type: application/json' \
+            -d "{\"content\":\"❌ **롤백 워크플로 실패** — target \`${TARGET}\`${SHA:+ (sha \`${SHA}\`)} · 실패 단계/사유는 로그 확인: ${RUN_URL}\"}" \
+            "$WEBHOOK" || true

@@ -1,0 +1,59 @@
+name: DB Migrate (manual SQL via app VM)
+
+# 운영 DB(ddl-auto=validate)에 수동 DDL 을 적용한다 — 배포 전 스키마 마이그레이션 전용.
+# DB VM 은 프라이빗 서브넷이라 앱 VM 에서 mysql 클라이언트(docker)로 실행한다.
+# ytcreator 유저는 ytcreator 스키마에 ALL 권한(공식 mysql 이미지 MYSQL_USER 규칙) — DDL 가능.
+# ⚠️ 스크립트는 one-shot(비멱등) — 같은 파일을 두 번 실행하면 "already exists" 로 실패한다(의도).
+on:
+  workflow_dispatch:
+    inputs:
+      sql_file:
+        description: "적용할 SQL 파일 (레포 경로)"
+        required: true
+        default: "backend/deploy/sql/admin-v2.sql"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-backend-vm # 배포와 같은 VM 을 만지므로 직렬화
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+
+      - name: SQL 파일을 앱 VM 으로 복사
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: ${{ inputs.sql_file }}
+          target: "~/ytcreator/migrate/"
+          strip_components: 3
+
+      - name: 앱 VM 에서 DB 에 SQL 적용 (docker mysql 클라이언트)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DB_HOST: ${{ vars.DB_HOST }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          SQL_FILE: ${{ inputs.sql_file }}
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          envs: DB_HOST,DB_PASSWORD,SQL_FILE
+          script: |
+            set -e
+            FILE=~/ytcreator/migrate/$(basename "$SQL_FILE")
+            echo "적용: $FILE → $DB_HOST/ytcreator"
+            # 비밀번호는 인자 노출을 피해 env 로 전달 (프로세스 목록·로그 비노출)
+            docker run --rm -i -e MYSQL_PWD="$DB_PASSWORD" mysql:8.0 \
+              mysql -h "$DB_HOST" -u ytcreator ytcreator < "$FILE"
+            echo "완료 — 검증:"
+            docker run --rm -e MYSQL_PWD="$DB_PASSWORD" mysql:8.0 \
+              mysql -h "$DB_HOST" -u ytcreator ytcreator -e "SHOW TABLES; DESCRIBE report;" | head -30
+            rm -f "$FILE"

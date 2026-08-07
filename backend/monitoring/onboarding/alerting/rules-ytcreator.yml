@@ -1,0 +1,582 @@
+# Grafana Alerting — ytcreator 전용 알림 룰 (기존 모니터링 서버에 파일만 추가)
+# 배치: Pi ~/monitoring/grafana/provisioning/alerting/rules-ytcreator.yml
+# contact point(discord)·notification policy 는 기존 것을 그대로 쓴다 — 새로 만들지 않는다.
+# 폴더/그룹/uid 가 프로젝트별로 분리돼 있어 다른 프로젝트 룰과 충돌하지 않는다.
+# 반영: 마운트 파일만 바뀌면 컨테이너가 재생성되지 않으므로 `docker compose restart grafana` 필요.
+#
+# 구성 관례:
+#   - 모든 룰: A = Prometheus instant query(비교식 포함 → 조건 성립 시에만 시계열 반환),
+#              B = threshold 표현식(발화 값과 일치하는 안전판 조건), condition: B
+#   - 비교식(filter) 쿼리는 "정상이면 No Data" 이므로 noDataState: OK 로 두어야 오탐이 없다.
+#   - `foo == 0` 형태는 발화 시 값이 0 → threshold 는 lt 1 로 잡는다(gt 0 이면 절대 발화 안 함).
+#   - datasourceUid: prometheus (datasources/prometheus.yml 에 uid: prometheus 고정 필요)
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: ytcreator-alerts
+    folder: ytcreator
+    interval: 1m
+    rules:
+      # ─────────────────────────────────────────────
+      # 앱(Spring Boot) 스크레이프 다운 — 터널 or 앱 컨테이너
+      - uid: ytcreator-app-down
+        title: AppDown
+        condition: B
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: critical
+        annotations:
+          summary: 'ytcreator-app 스크레이프 실패 (up == 0) — 앱 컨테이너 또는 SSH 터널 확인'
+          description: 'Prometheus 가 host.docker.internal:20200 (터널 → 앱 VM 8080) 스크레이프에 2분 이상 실패.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 'up{job="spring-apps",project="ytcreator"} == 0'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # mysqld_exporter 스크레이프 다운
+      - uid: ytcreator-mysql-exporter-down
+        title: MySQLExporterDown
+        condition: B
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: warning
+        annotations:
+          summary: 'ytcreator-mysql(mysqld_exporter) 스크레이프 실패 (up == 0)'
+          description: 'host.docker.internal:20202 (터널 → DB VM 9104) 스크레이프에 2분 이상 실패. exporter 컨테이너/터널 확인.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 'up{job="mysql",project="ytcreator"} == 0'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # MySQL 서버 자체 다운 (exporter 는 살아 있으나 DB 접속 실패)
+      - uid: ytcreator-mysql-down
+        title: MySQLDown
+        condition: B
+        for: 1m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: critical
+        annotations:
+          summary: 'MySQL 다운 (mysql_up{project="ytcreator"} == 0) — exporter 는 살아 있으나 DB 접속 실패'
+          description: 'DB VM 의 MySQL 컨테이너/프로세스 상태를 확인. (exporter 자체가 죽으면 MySQLExporterDown 이 대신 발화)'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 'mysql_up{project="ytcreator"} == 0'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # 터널 의심 — ytcreator-* 대상 전부 down 이면 개별 장애보다 터널 장애 가능성이 높다
+      - uid: ytcreator-tunnel-suspected
+        title: TunnelSuspected
+        condition: B
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: critical
+        annotations:
+          summary: 'ytcreator-* 스크레이프 대상 전부 down — 전부 down 이면 터널 먼저 확인'
+          description: 'Pi 의 SSH 터널(systemd ytcreator-tunnel.service) 상태를 먼저 확인: systemctl status ytcreator-tunnel. 터널이 정상인데도 전부 down 이면 앱 VM 자체 장애.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 'count(up{project="ytcreator",job=~"spring-apps|mysql|node"} == 0) == count(up{project="ytcreator",job=~"spring-apps|mysql|node"})'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # 5xx 비율 > 5% (분모 가드: 전체 요청 rate > 0.1 req/s 일 때만)
+      - uid: ytcreator-high-error-rate
+        title: HighErrorRate
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: warning
+        annotations:
+          summary: '5xx 에러 비율 5% 초과 (5분 지속, 트래픽 0.1 req/s 이상일 때만)'
+          description: '현재 5xx 비율: {{ $values.A }}. 앱 로그(Loki)에서 500 스택트레이스 확인. 봇 404→500 버그 수정 배포 여부도 확인.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: '(sum(rate(http_server_requests_seconds_count{application="ytcreator-backend", status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count{application="ytcreator-backend"}[5m])) > 0.05) and (sum(rate(http_server_requests_seconds_count{application="ytcreator-backend"}[5m])) > 0.1)'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.05]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # JVM 힙 사용률 > 90% (max=-1 인 풀 제외 가드: > 0 필터)
+      - uid: ytcreator-heap-high
+        title: HeapHigh
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: warning
+        annotations:
+          summary: 'JVM 힙 사용률 90% 초과 10분 지속'
+          description: '현재 힙 사용률: {{ $values.A }}. GC 로그/메모리 릭 확인. 지속되면 앱 컨테이너 재시작 고려.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: '(sum(jvm_memory_used_bytes{application="ytcreator-backend", area="heap"}) / sum(jvm_memory_max_bytes{application="ytcreator-backend", area="heap"} > 0)) > 0.90'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.9]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # 루트 파일시스템 여유 공간 < 15% (node_exporter)
+      - uid: ytcreator-disk-low
+        title: DiskLow
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: warning
+        annotations:
+          summary: '루트(/) 디스크 여유 공간 15% 미만 — {{ $labels.service }}'
+          description: '남은 비율: {{ $values.A }}. docker system prune, 로그 정리 검토.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: '(node_filesystem_avail_bytes{job="node",project="ytcreator", fstype!~"tmpfs|squashfs|overlay", mountpoint="/"} / node_filesystem_size_bytes{job="node",project="ytcreator", fstype!~"tmpfs|squashfs|overlay", mountpoint="/"}) < 0.15'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.15]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # CPU 사용률 > 90% (10분 지속, VM 별 = service 라벨 별)
+      - uid: ytcreator-cpu-high
+        title: CPUHigh
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: warning
+        annotations:
+          summary: 'CPU 사용률 90% 초과 10분 지속 — {{ $labels.service }}'
+          description: '현재 사용률: {{ $values.A }}. top/컨테이너별 CPU 확인.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: '(1 - avg by (service) (rate(node_cpu_seconds_total{job="node",project="ytcreator", mode="idle"}[5m]))) > 0.90'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.9]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # 가용 메모리 < 10% (node_exporter MemAvailable 기준)
+      - uid: ytcreator-mem-low
+        title: MemLow
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: warning
+        annotations:
+          summary: '가용 메모리 10% 미만 — {{ $labels.service }}'
+          description: '남은 비율: {{ $values.A }}. OOM 킬 위험. 프로세스별 메모리 확인.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: '(node_memory_MemAvailable_bytes{job="node",project="ytcreator"} / node_memory_MemTotal_bytes{job="node",project="ytcreator"}) < 0.10'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+
+      # ─────────────────────────────────────────────
+      # 외부 헬스 프로브 실패 (blackbox_exporter → 공개 API)
+      # 윈도우형(5m 평균 성공률)인 이유: instant `probe_success == 0` 은 성공 표본 1개에
+      # 즉시 resolved 돼, 간헐 실패(플래핑) 하나가 firing/resolved 수십 쌍으로 쪼개진다
+      # (2026-07-11 DNS resolve 지연 사례 — 9시간에 11회 발화). 평균 조건은 이를 1건으로 묶는다.
+      - uid: ytcreator-probe-fail
+        title: ProbeFail
+        condition: B
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          project: ytcreator
+          severity: critical
+        annotations:
+          summary: '외부 프로브 실패 — https://ytcreator.duckdns.org/v1/memes/trending 5분 평균 성공률 50% 미만'
+          description: '터널과 무관한 인터넷 경유 체크. DNS(duckdns)/Caddy TLS/앱 순으로 확인. (내부 up 은 정상인데 이것만 실패하면 인그레스 또는 프로브측 DNS 문제 — 2026-07-11 사례는 Pi ISP 리졸버의 duckdns 해석 타임아웃이었고 blackbox 컨테이너 DNS 를 공용 DNS 로 고정해 완화)'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 'avg_over_time(probe_success{job="blackbox",project="ytcreator"}[5m]) < 0.5'
+              instant: true
+              range: false
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.5]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold

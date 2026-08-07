@@ -1,0 +1,49 @@
+# ══════════════════════════════════════════════════════════════════════
+# 모니터링 서버(rasp4)의 ~/monitoring/prometheus/prometheus.yml 에
+# 딱 한 번만 추가하는 "멀티 프로젝트 공용" 스크레이프 설정.
+#
+# 이걸 넣어 두면 이후 신규 프로젝트는 targets/ 에 파일 4개를 떨구는 것으로 끝난다
+# (file_sd 는 30초마다 파일을 다시 읽으므로 Prometheus 재시작조차 필요 없다).
+# 기존 프로젝트의 static_configs 잡은 그대로 둬도 된다 — 서로 간섭하지 않는다.
+#
+# 선행 1회: docker-compose.yml 의 prometheus 서비스에 targets 디렉토리 마운트 추가
+#   volumes:
+#     - ./prometheus/targets:/etc/prometheus/targets:ro
+# ══════════════════════════════════════════════════════════════════════
+
+scrape_configs:
+  # ── Spring Boot(Micrometer) — targets/spring-*.yml ──────────────────
+  - job_name: spring-apps
+    metrics_path: /actuator/prometheus
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/spring-*.yml"]
+        refresh_interval: 30s
+
+  # ── 호스트 메트릭(node_exporter) — targets/node-*.yml ────────────────
+  - job_name: node
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/node-*.yml"]
+        refresh_interval: 30s
+
+  # ── MySQL(mysqld_exporter) — targets/mysql-*.yml ────────────────────
+  - job_name: mysql
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/mysql-*.yml"]
+        refresh_interval: 30s
+
+  # ── 외부 관점 HTTPS 프로브 — targets/blackbox-*.yml ──────────────────
+  # 파일의 targets 값은 "프로브할 URL". relabel 로 blackbox 컨테이너에 넘긴다.
+  - job_name: blackbox
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/blackbox-*.yml"]
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

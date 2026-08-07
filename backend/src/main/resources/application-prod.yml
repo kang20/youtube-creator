@@ -1,0 +1,34 @@
+# 운영 (OCI VM 컨테이너) 전용 — docker-compose.prod.yml 이 SPRING_PROFILES_ACTIVE=prod 로 기동
+spring:
+  # 무중단 배포(블루-그린) 전제 — SIGTERM 시 처리 중 요청을 마치고 종료(drain).
+  # compose stop_grace_period(35s) 안에 끝나도록 25s 로 상한을 둔다.
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
+
+  # 운영 컨테이너 안에는 Docker 가 없다
+  docker:
+    compose:
+      enabled: false
+
+  # 기본값 없음 — 환경변수 누락 시 기동 실패(fail-fast)가 의도된 동작
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      # 운영 스키마는 배포로 변경하지 않는다. 스키마 변경은 수동 DDL 후 배포.
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    properties:
+      hibernate:
+        format_sql: false
+
+# 운영 레벨 정책 명시 — "ERROR = 사람이 조치" (docs/ops/logging.md §3.1)
+logging:
+  level:
+    root: INFO
+
+# 무중단 배포 — graceful shutdown (SIGTERM 시 새 요청은 거절하고 진행 중 요청은 완료 후 종료)
+server:
+  shutdown: graceful

@@ -1,0 +1,9 @@
+# Pi: ~/monitoring/prometheus/targets/blackbox-ytcreator.yml
+# 외부 관점 HTTPS 프로브 — 터널과 무관하게 Pi 가 인터넷 경유로 공개 도메인을 직접 찌른다.
+# 대상은 인증 없이 200 이 나오는 공개 엔드포인트로. (/actuator/health 를 쓰려면
+# Caddyfile 의 actuator 403 매처에 예외를 파야 한다 — references/06 참고)
+- targets: ["https://__DOMAIN__/actuator/health"]
+  labels:
+    project: ytcreator
+    service: ytcreator-public
+    env: prod

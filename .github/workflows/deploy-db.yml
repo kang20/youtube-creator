@@ -1,0 +1,64 @@
+name: Deploy DB to OCI (private subnet via bastion)
+
+# DB VM 은 프라이빗 서브넷이라 앱 VM(OCI_HOST)을 SSH 점프호스트로 경유한다.
+# MySQL 은 자주 바뀌지 않으므로 수동 실행(workflow_dispatch) + db compose 변경 시에만 트리거.
+on:
+  push:
+    branches: [backend]
+    paths:
+      - "backend/deploy/docker-compose.db.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-db:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+
+      - name: compose 파일 DB VM 으로 복사 (앱 VM 경유)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.DB_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          proxy_host: ${{ secrets.OCI_HOST }}
+          proxy_username: ${{ secrets.OCI_USER }}
+          proxy_key: ${{ secrets.OCI_SSH_KEY }}
+          source: "backend/deploy/docker-compose.db.yml"
+          target: "~/ytcreator/"
+          strip_components: 2
+
+      - name: DB VM 에서 MySQL 기동 (.env 는 GitHub 시크릿에서 재생성)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MYSQL_EXPORTER_PASSWORD: ${{ secrets.MYSQL_EXPORTER_PASSWORD }}
+        with:
+          host: ${{ vars.DB_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          proxy_host: ${{ secrets.OCI_HOST }}
+          proxy_username: ${{ secrets.OCI_USER }}
+          proxy_key: ${{ secrets.OCI_SSH_KEY }}
+          envs: MYSQL_ROOT_PASSWORD,DB_PASSWORD,MYSQL_EXPORTER_PASSWORD
+          script: |
+            set -e
+            cd ~/ytcreator
+            umask 077
+            {
+              echo "MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD"
+              echo "DB_PASSWORD=$DB_PASSWORD"
+              echo "MYSQL_EXPORTER_PASSWORD=$MYSQL_EXPORTER_PASSWORD"
+            } > .env
+            docker compose -f docker-compose.db.yml up -d
+            # mysqld_exporter 용 계정 보장 (root 비밀번호는 GitHub 시크릿에만 존재하므로 여기서 처리)
+            for i in $(seq 1 30); do
+              docker exec ytcreator-mysql mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent 2>/dev/null && break
+              sleep 2
+            done
+            docker exec ytcreator-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS 'exporter'@'%' IDENTIFIED BY '$MYSQL_EXPORTER_PASSWORD' WITH MAX_USER_CONNECTIONS 3; ALTER USER 'exporter'@'%' IDENTIFIED BY '$MYSQL_EXPORTER_PASSWORD'; GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%'; FLUSH PRIVILEGES;" 2>/dev/null

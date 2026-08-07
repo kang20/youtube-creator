@@ -1,0 +1,25 @@
+# DOMAIN 은 compose 환경변수(.env 의 DOMAIN)로 주입된다.
+# 예: __DOMAIN__ — Let's Encrypt 인증서가 자동 발급된다.
+#
+# 활성 색(app-blue / app-green)은 upstream.caddy 스니펫이 단일 진실이다.
+# deploy.sh / rollback.sh 가 전환 시 이 파일을 교체하고 `caddy reload` 로 그레이스풀 반영한다.
+# (upstream.caddy 는 저장소에 없고 VM 에서만 관리 — .gitignore. 최초 부트스트랩은 deploy.sh 가 생성)
+
+# ── 공개 HTTPS — 토스 미니앱 ─────────────────────────────
+{$DOMAIN} {
+	# 모니터링 엔드포인트는 외부 차단 — 수집은 아래 루프백 :8080 사이트(SSH 터널)로만.
+	# `/actuator` 와 `/actuator/*` 둘 다 명시 — Caddy path 매처는 정확 매칭이라
+	# `/actuator/*` 만으로는 슬래시 없는 `/actuator`(디스커버리 인덱스)가 새어나간다.
+	@actuator path /actuator /actuator/*
+	respond @actuator 403
+
+	import upstream.caddy
+}
+
+# ── 앱 VM 루프백 전용 — 모니터링 스크레이프 안정 포트 ─────────
+# compose 가 127.0.0.1:8080 에만 publish → 외부 비노출. Pi 터널(-L 18080)이 여기에 붙는다.
+# 색 교체와 무관하게 "현재 서빙 중인 색"의 /actuator/prometheus 를 스크레이프한다.
+# (여기엔 actuator 403 이 없다 — 프로메테우스가 /actuator/prometheus 를 읽어야 하므로)
+:8080 {
+	import upstream.caddy
+}

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# ytcreator 레포 커밋 제약:
+#  (A) 커밋 전 항상 최신화 — origin/<branch> 보다 뒤처지면 거부 (git pull 요구)
+#  (B) main: 문서(.md)·assets/ 만 커밋 가능 (.githooks/ 운영 파일 예외). 코드 금지
+#  (C) frontend 브랜치는 backend/ 변경 금지, backend 브랜치는 frontend/ 변경 금지
+set -euo pipefail
+
+branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo '')"
+# core.quotePath=false: 한글·공백 등 비ASCII 파일명이 "..."로 따옴표 처리되지 않게 (예외 매칭용)
+files="$(git -c core.quotePath=false diff --cached --name-only)"
+
+# (A) 커밋 전 최신화 강제
+if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+  git fetch -q origin "$branch" 2>/dev/null || true
+  behind="$(git rev-list --count "HEAD..origin/$branch" 2>/dev/null || echo 0)"
+  if [ "${behind:-0}" -gt 0 ]; then
+    echo "✋ [pre-commit] origin/$branch 보다 $behind 커밋 뒤처져 있어요. 커밋 전에 'git pull' 먼저 하세요." >&2
+    exit 1
+  fi
+fi
+
+# (B)(C) 브랜치별 파일 규칙
+case "$branch" in
+  main|master)
+    # .md 문서·assets/·docs/api/(REST Docs HTML) 만 허용 (.githooks/ 운영 파일은 예외)
+    nonmd="$(printf '%s\n' "$files" | grep -vE '(\.md$|^\.githooks/|^assets/|^docs/api/|^\.gitignore$|^\.claude/)' || true)"
+    if [ -n "$nonmd" ]; then
+      echo "✋ [pre-commit] main에는 문서(.md)·assets/·docs/api/ 만 커밋할 수 있어요. 코드는 frontend/backend 브랜치에서:" >&2
+      printf '   %s\n' "$nonmd" >&2
+      exit 1
+    fi
+    ;;
+  frontend)
+    bad="$(printf '%s\n' "$files" | grep -E '^backend/' || true)"
+    if [ -n "$bad" ]; then
+      echo "✋ [pre-commit] frontend 브랜치에서는 backend/ 경로를 변경할 수 없어요:" >&2
+      printf '   %s\n' "$bad" >&2
+      exit 1
+    fi
+    ;;
+  backend)
+    bad="$(printf '%s\n' "$files" | grep -E '^frontend/' || true)"
+    if [ -n "$bad" ]; then
+      echo "✋ [pre-commit] backend 브랜치에서는 frontend/ 경로를 변경할 수 없어요:" >&2
+      printf '   %s\n' "$bad" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+exit 0
