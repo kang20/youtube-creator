@@ -1,10 +1,12 @@
 # Auth 도메인 설계
 
 > 비즈니스 요구사항(유스케이스 명세): [auth.md](./auth.md) — **요구·정책·API 계약의 정본**. 이 문서는 소프트웨어 설계만 다룬다.
-> **대응 유스케이스 버전: v1**
+> **대응 유스케이스 버전: v2** ← auth.md §9-2 (공개 경로 확대 · CORS preflight 예외)
 > 서버 계약(정본): `docs/server/api-spec.md` — **아직 존재하지 않는다.** 이 설계가 첫 입주 대상이다(auth.md §10-7)
 > 구조 규칙: [architecture.md](../rule/architecture.md) · 에러: [error-handling.md](../rule/error-handling.md) · 테스트: [testing.md](../rule/testing.md) · REST Docs: [rest-docs.md](../rule/rest-docs.md)
-> 상태: 설계 확정 대기 — 승인 후 구현 착수
+> 상태: **설계 확정 (2026-08-07)** — `/implement auth` 호출로 승인. §12 는 아래 기본값으로 착수했다:
+>   §12-1 `bootstrap` 미구현(범위 외 유지) · ~~§12-2 컬럼 255 잠정~~ **→ v2 에서 해소(해시 64 고정)** ·
+>   §12-3 이번 구현에 영향 없음(컨트롤러 없음) · §12-4 JPA Auditing 은 범위 밖
 
 > ⚠️ **첫 도메인이다.** `kang20.ytcreator` 아래에 도메인 모듈이 하나도 없다(`shared`·`config` 만 존재).
 > 인용할 선례가 없으므로 **이 설계가 이후 모든 도메인의 선례**가 된다.
@@ -133,10 +135,10 @@ POST /api/v1/bootstrap
 ```
 User                              -- auth 모듈. 익명키당 정확히 하나(멱등, U2)
   id             Long             -- surrogate PK, IDENTITY
-  anonymousKey   String(255)      -- 토스 익명키 hash 원문
+  anonymousKeyHash String(64)     -- ⚠️ SHA-256(익명키) 의 hex. **원문은 저장하지 않는다** (v2 — §3-2)
   createdAt      LocalDateTime    -- BaseTimeEntity. 응답의 registeredAt 이 이 값이다
   updatedAt      LocalDateTime    -- BaseTimeEntity
-  UNIQUE (anonymous_key)          -- 멱등의 근거. 동시 등록 경쟁을 DB 가 최종 판정한다(§6)
+  UNIQUE (anonymous_key_hash)     -- 멱등의 근거. 동시 등록 경쟁을 DB 가 최종 판정한다(§6)
 ```
 
 - [BaseTimeEntity](../../src/main/java/kang20/ytcreator/shared/domain/BaseTimeEntity.java) **상속**한다 —
@@ -145,9 +147,36 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
 - **surrogate PK 를 쓴다.** `anonymousKey` 를 PK 로 삼으면 (a) 다른 모듈이 FK 로 익명키 원문을 들고
   다니게 되어 U6(비노출) 이 넓어지고, (b) 미니앱 재출시로 익명키가 바뀔 때(auth.md §4-6) PK 를
   갈아야 한다. 식별자와 PK 를 분리해 둔다.
-- ⚠️ **`anonymousKey` 의 길이 255 는 잠정값이다** — auth.md 🔶-3(형식 규격 보류)이 이 컬럼에 직접
-  닿는다. 근거: MySQL `utf8mb4` 유니크 인덱스 상한(3072 bytes ≈ 768자) 안이고 Hibernate 기본값이라
-  안전 측이다. 스파이크 6 에서 실제 hash 길이가 나오면 조정한다(§12-2).
+### 3-2. ⚠️ 익명키를 원문으로 저장하지 않는다 (v2 — 2026-08-07 사용자 결정, blockers B4)
+
+**초안은 원문 `String(255)` 였다. 라운드 2 테스트가 그 결정의 부작용을 실측으로 잡았다.**
+
+- UNIQUE 위반을 **정상 흐름으로 삼는 설계**(§6-4)에서, 위반이 나는 순간 Hibernate 가
+  `org.hibernate.orm.jdbc.error` WARN 으로 SQL 예외 메시지를 찍고 **그 메시지에 익명키 원문이 들어간다.**
+  MySQL 도 `Duplicate entry '<익명키>' for key ...` 로 같은 값을 넣는다.
+- 이는 auth.md **U6·§4-5**(“로그 어디에도 남기지 않는다”)와
+  [logging.md](../ops/logging.md) §3.3(“anonKey 원문 **절대 금지**”)을 동시에 위반한다.
+  게다가 §6-1 이 “C1 은 **실제로 일어난다**”고 적은 경로라 **정상 사용자의 최초 진입마다** 발생할 수 있고,
+  로그는 Loki 14일 + **gz 영구 아카이브**라 한 번 들어가면 되돌릴 수 없다.
+
+**해결 — 저장 값을 `SHA-256(익명키)` 의 hex 64자로 바꾼다.**
+
+| 항목 | 결과 |
+|---|---|
+| 제약 위반 메시지 | 해시만 노출 → **U6 가 지켜진다** |
+| DB 유출 시 | 익명키 원문이 없다 → §4-1 이 감안한 도용 리스크의 **폭이 실제로 줄어든다** |
+| 조회·UNIQUE | 해시로 수행. **auth 는 원문을 되돌려줄 일이 없다**(§4 `Registration` 에 원문 없음) |
+| 토스 서버 API (`x-anon-key`) | 영향 없음 — 그때 쓰는 원문은 **요청 헤더**에서 오지, DB 에서 오지 않는다 |
+| 컬럼 길이 | **64 고정** → §12-2(길이 잠정) **해소됨** |
+
+- 해시는 **솔트 없이** 결정적으로 계산한다. 조회 키로 써야 하므로 결정적이어야 하고,
+  익명키 자체가 고엔트로피 값이라 사전 공격 대상이 아니다.
+- ⚠️ **🔶-3(형식 규격)은 여전히 남는다.** 저장 길이가 고정될 뿐, **들어오는 원문**에 대한
+  형식 검증(U5)은 그대로 필요하다.
+- ⚠️ 되돌리기 비용: **지금은 0 이다(행 0개).** 나중에 바꾸려면 전 행 마이그레이션이 붙는다 —
+  §4-7 의 “되돌리기 비용의 비대칭” 논리가 여기에도 적용된다.
+- **다른 도메인 선례**: `subscription` 도 익명키↔주문 매핑을 보관한다(auth.md §9-1 전제).
+  같은 이유로 해시 저장이 맞다 — 이 결정이 그 선례가 된다.
 
 ### 3-1. 수동 DDL — **필요하다**
 
@@ -156,8 +185,8 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
 
 | 산출물 | 내용 | 적용 시점 |
 |---|---|---|
-| `backend/deploy/sql/event-publication-v1.sql` | 모듈 이벤트 아웃박스 `EVENT_PUBLICATION` 테이블 | **앱 배포보다 먼저** |
-| `backend/deploy/sql/auth-v1.sql` | `users` 테이블 + `anonymous_key` UNIQUE 인덱스 | **앱 배포보다 먼저** |
+| `backend/deploy/sql/event-publication-v1.sql` | 모듈 이벤트 아웃박스 **`event_publication`(소문자)** 테이블 | **앱 배포보다 먼저** |
+| `backend/deploy/sql/auth-v1.sql` | `users` 테이블 + **`anonymous_key_hash VARCHAR(64)`** UNIQUE 인덱스 **(v2)** | **앱 배포보다 먼저** |
 
 - `backend/deploy/sql/` 디렉터리가 **아직 없다.** 이 도메인이 처음 만든다 — 이후 도메인의 선례가 된다.
 - 테스트는 `ddl-auto: create-drop`([testing.md](../rule/testing.md))이라 자동 생성된다.
@@ -171,7 +200,19 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
   **“첫 배포 전에”** 로 걸어 두었다. **auth 가 그 첫 배포다.**
 - 따라서 “auth 는 이벤트를 안 쓰니 무관하다”는 판단을 하지 않는다. **보수적으로 함께 적용**한다 —
   불필요했다면 빈 테이블 하나가 남을 뿐이지만, 빠뜨리면 **운영 기동 실패**다. 비용이 비대칭이다.
-- 구현 시 실제 검증 동작을 한 번 확인하고 결과를 이 문서에 역반영한다(§11).
+
+✅ **실측 확인 완료 (구현 라운드 1 역반영)** — 앱을 실제 기동해 확인했다.
+
+- 아무 모듈도 이벤트를 발행하지 않는 상태에서도 `Schema validation: missing table [event_publication]`
+  으로 **기동이 실패했다.** 위 보수적 판단이 옳았음이 확인됐다.
+- ⚠️ **테이블명은 소문자 `event_publication` 이다**(Boot 물리 네이밍 전략). 대문자로 만들면
+  **대소문자를 구분하는 리눅스 MySQL 에서 validate 가 깨진다** — 로컬(Windows/H2)에서는 안 드러난다.
+- DDL 본문은 추측이 아니라 실제 매핑(Boot 4.0.6 · Hibernate 7.2.12 · MySQLDialect)이 생성한
+  명령을 그대로 옮겼다.
+- ⚠️ **`CHAR` 로 쓰면 `validate` 가 거부한다** (라운드 3 실측). `anonymous_key_hash` 는 길이가
+  64 로 고정이라 `CHAR(64)` 가 자연스러워 보이지만, JPA `String` 매핑의 기대 타입은 `VARCHAR` 다:
+  `wrong column type ... found [character (Types#CHAR)], but expecting [varchar(64) (Types#VARCHAR)]`.
+  **수동 DDL 은 "논리적으로 맞는 타입"이 아니라 "매핑이 기대하는 타입"으로 써야 한다.**
 
 ---
 
@@ -183,8 +224,9 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
 | `auth/AuthService.java` | 모듈 공개 API. `Registration register(String anonymousKey)` | **public (모듈 밖 유일 진입)** |
 | `auth/dto/Registration.java` | `record Registration(boolean newUser, LocalDateTime registeredAt)` | public |
 | `auth/internal/User.java` | 엔티티 | 모듈 밖 참조 불가 |
-| `auth/internal/UserRepository.java` | `findByAnonymousKey` / `save` | 모듈 밖 참조 불가 |
+| `auth/internal/UserRepository.java` | `findByAnonymousKeyHash` / `save` **(v2)** | 모듈 밖 참조 불가 |
 | `auth/internal/UserWriter.java` | **신규 빈** — `@Transactional(REQUIRES_NEW) User insert(String)`. **별도 빈이어야 하는 이유는 §6-4** | 모듈 밖 참조 불가 |
+| `auth/internal/AnonymousKeyHasher.java` | **신규 (v2)** — `String hash(String rawKey)` = SHA-256 hex 64자. 저장·조회 직전에만 쓴다(§3-2) | 모듈 밖 참조 불가 |
 | `shared/security/AnonymousKeyFilter.java` | **변경** — 형식 검증 + 거부 사유 attribute (U1·U5) | 기존 public |
 | `shared/security/AnonymousKeyEntryPoint.java` | **신규** — 401 본문 직접 작성 (U3) | public |
 | `shared/security/AnonymousKeyFormat.java` | **신규** — 형식 규칙 + `mask()` (U5·U6) | public |
@@ -225,9 +267,10 @@ AnonymousKeyEntryPoint implements AuthenticationEntryPoint
 
 ```
 register(anonymousKey):                      -- ⚠️ 트랜잭션 없음 (의도적 — §6-4)
-  1. findByAnonymousKey(anonymousKey)                                 -- 자체 트랜잭션(읽기)
+  0. hash = hasher.hash(anonymousKey)                                 -- (v2) 이후로는 원문을 쓰지 않는다(§3-2)
+  1. findByAnonymousKeyHash(hash)                                     -- 자체 트랜잭션(읽기)
        존재 → return Registration(newUser=false, 기존.createdAt)      -- 멱등(U2)
-  2. 없음 → userWriter.insert(anonymousKey)                           -- 별도 쓰기 트랜잭션
+  2. 없음 → userWriter.insert(hash)                                   -- 별도 쓰기 트랜잭션
        성공          → return Registration(newUser=true, 신규.createdAt)
        UNIQUE 위반   → §6 경쟁 처리로 위임 (예외를 밖으로 흘리지 않는다)
 ```
@@ -247,6 +290,7 @@ AnonymousKeyFilter.doFilterInternal:          -- 절대 거부하지 않는다(�
   정상             → SecurityContext 에 AnonymousAuthentication 설정 → chain 계속
 
 SecurityConfig 인가 규칙:
+  CORS preflight      → 인가 앞단의 CorsFilter 가 처리 (v2 — 게이트에 도달하지 않는다)
   공개 경로(열거)      → permitAll
   그 외               → authenticated
 
@@ -258,9 +302,14 @@ AnonymousKeyEntryPoint.commence:              -- 인가 규칙이 막았을 때�
 
 - **U6 준수**: 진입점·필터 어디서도 익명키 원문을 응답이나 로그에 넣지 않는다.
   진단 로그가 필요하면 `AnonymousKeyFormat.mask()` 를 거친다.
-- 공개 경로 목록의 **값**은 auth.md §4-2 가 정본이다(헬스체크·솔루션 목록/상세·부트스트랩).
-  솔루션·부트스트랩 엔드포인트는 아직 없으므로 **이번 구현에서는 헬스체크만 열거**되고,
+- 공개 경로 목록의 **값**은 auth.md §4-2 가 정본이다.
+  **(v2)** `~~/actuator/health 만~~ → /actuator/** 전체` — 초안대로 헬스체크만 열면
+  **Prometheus 스크레이프가 401 이 되어 모니터링이 죽는다**(구현 라운드 1 실측, blockers B1).
+  솔루션·부트스트랩 엔드포인트는 아직 없으므로 이번 구현에서 열거되는 것은 `/actuator/**` 뿐이고,
   나머지는 해당 도메인이 생길 때 추가된다(§7).
+- **(v2) CORS preflight 는 `SecurityConfig` 의 `.cors()` 로 인가 앞단에서 처리한다**(blockers B2).
+  `WebConfig` 의 허용 오리진 정책은 그대로 쓰므로 **인증 정책도 CORS 정책도 바뀌지 않는다** —
+  preflight 만 원래대로 되돌린다. 경로 열거로는 풀 수 없는 이유는 auth.md §4-2 참조.
 
 ---
 
@@ -323,16 +372,21 @@ MySQL InnoDB 기본 격리 수준 `REPEATABLE READ` 는 트랜잭션의 **첫 �
 
 ```
 AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙이지 않는다
-  기존 = userRepository.findByAnonymousKey            -- 자체 트랜잭션 ①
+  hash = hasher.hash(anonymousKey)                    -- (v2) §3-2
+  기존 = userRepository.findByAnonymousKeyHash(hash)  -- 자체 트랜잭션 ①
   기존 있음 → Registration(false, 기존.createdAt)
 
   try:
-     신규 = userWriter.insert(anonymousKey)            -- 다른 빈 → REQUIRES_NEW 가 실제로 걸린다 ②
+     신규 = userWriter.insert(hash)                    -- 다른 빈 → REQUIRES_NEW 가 실제로 걸린다 ②
      return Registration(true, 신규.createdAt)
   catch DataIntegrityViolationException:              -- 경쟁에서 졌다
-     경쟁자 = userRepository.findByAnonymousKey        -- 자체 트랜잭션 ③ → 새 스냅샷
+     경쟁자 = userRepository.findByAnonymousKeyHash(hash)  -- 자체 트랜잭션 ③ → 새 스냅샷
      return Registration(false, 경쟁자.createdAt)      -- 사용자에겐 "기존 사용자"로 보인다
 ```
+
+> **(v2) 이 경로가 U6 를 지키는 방식**: ② 가 UNIQUE 위반을 내면 Hibernate 가 그 SQL 예외를 WARN 으로
+> 찍는데, 메시지에 실리는 값이 **해시**라 익명키 원문이 로그에 남지 않는다(§3-2, blockers B4).
+> 즉 §6 의 "위반을 정상 흐름으로 삼는" 구조와 U6 가 **해시 저장 덕분에** 양립한다.
 
 #### 왜 바깥 트랜잭션을 없애는 것이 옳은가
 
@@ -376,6 +430,10 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 - **③ 이 반드시 행을 찾는 근거**: InnoDB 는 중복 키 삽입 시 상대 트랜잭션이 끝날 때까지 대기시킨다.
   ② 가 UNIQUE 위반을 받았다는 것은 **경쟁자가 이미 커밋했다**는 뜻이므로, 새 트랜잭션인 ③ 은
   그 행을 반드시 본다.
+- ⚠️ **이 근거는 “UNIQUE 위반”일 때만 참이다** (코드 리뷰 권고-4 역반영).
+  `DataIntegrityViolationException` 은 NOT NULL 위반·길이 초과도 함께 잡는데, 그 경우 ③ 은 당연히
+  비고 **단서 없는 500** 이 나간다. 🔶 잡는 예외를 `DuplicateKeyException` 으로 좁힐지는
+  **미결**이다 → §12-5.
 - **DB 이식성**: `REQUIRES_NEW` 와 UNIQUE 위반 → `DataIntegrityViolationException` 변환은 Spring 표준
   예외 변환이라 H2·MySQL 이 동일하게 동작한다. **네이티브 SQL 도, 격리 수준 가정도 쓰지 않는 것**이
   이 선택의 핵심 이득이다(§6-3 기각안 대비).
@@ -404,7 +462,9 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 
 | 파일 | 변경 | 영향 |
 |---|---|---|
-| [SecurityConfig.java](../../src/main/java/kang20/ytcreator/config/SecurityConfig.java) | `anyRequest().permitAll()` → **공개 경로 열거 + `anyRequest().authenticated()`**, `exceptionHandling` 에 진입점 등록 | ⚠️ **가장 파급이 크다.** 이후 모든 엔드포인트가 기본 차단된다. 공개로 열어야 할 경로를 빠뜨리면 그 기능이 통째로 401 이 된다 |
+| [SecurityConfig.java](../../src/main/java/kang20/ytcreator/config/SecurityConfig.java) | `anyRequest().permitAll()` → **공개 경로 열거 + `anyRequest().authenticated()`**, `exceptionHandling` 에 진입점 등록, **`.cors()` 추가 (v2)** | ⚠️ **가장 파급이 크다.** 이후 모든 엔드포인트가 기본 차단된다. 공개로 열어야 할 경로를 빠뜨리면 그 기능이 통째로 401 이 된다. **경로 축뿐 아니라 메서드 축(preflight)도 막힌다는 것이 라운드 1 에서 드러났다** |
+| [WebConfig.java](../../src/main/java/kang20/ytcreator/config/WebConfig.java) | **변경 없음이 정책 (v2)** | `.cors()` 가 이 설정의 `CorsConfigurationSource` 를 그대로 쓴다. 허용 오리진 정책은 한 글자도 바뀌지 않는다 |
+| [JpaAuditingConfig.java](../../src/main/java/kang20/ytcreator/config/JpaAuditingConfig.java) | **변경 없음이 정책** | `createdAt` 은 Spring Data 기본 시간 제공자가 채우며 `TimeConfig` 의 `Clock` 을 보지 않는다 → §12-4 |
 | [AnonymousKeyFilter.java](../../src/main/java/kang20/ytcreator/shared/security/AnonymousKeyFilter.java) | 형식 검증 + 거부 사유 attribute 추가 | 기존 "거부하지 않는다" 원칙은 **유지**. `HEADER` 상수도 그대로(프론트 계약) |
 | [AnonymousAuthentication.java](../../src/main/java/kang20/ytcreator/shared/security/AnonymousAuthentication.java) | **주석만** 갱신 — *"로그인이 필요한 기능은 `appLogin()` 경로를 별도로 둔다"* 삭제 | 코드 동작 무변경. auth.md §4-1·§10-5 가 지적한 결정 이전 서술 |
 | [AnonymousKeyFilterTest.java](../../src/test/java/kang20/ytcreator/shared/security/AnonymousKeyFilterTest.java) | 형식 위반·attribute 케이스 추가 | 기존 3케이스는 그대로 통과해야 한다(회귀 감지선) |
@@ -435,6 +495,7 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 |---|---|---|
 | 문서화 전용 더미 컨트롤러를 만든다 | ❌ | 운영 코드에 문서용 엔드포인트가 남는다 |
 | **`bootstrap` 구현 시 그 엔드포인트의 실패 케이스로 문서화**(`bootstrap-entry-fail-*`) | ✅ | 게이트는 어차피 실제 엔드포인트를 통해서만 관측된다. 중복도 없다 |
+| **테스트 전용 프로브 라우트 (v2 — 구현에서 발견)** | ✅ **선례** | `src/test` 안에 `RouterFunction`(`/api/v1/gate-probe`)을 두면 **운영 코드를 더럽히지 않고** 게이트를 실제 요청으로 검증할 수 있다. 문서화용은 아니지만 **엔드포인트가 없는 도메인의 게이트 검증** 문제를 푼다 — 다음 도메인이 따라 쓸 패턴 |
 
 - 따라서 **`/docs-sync` 는 이번 구현 후 실행 대상이 아니다** — 갱신될 스니펫이 없다.
   `common.adoc` 문구 수정(§7)만 다음 `/docs-sync` 때 함께 반영한다.
@@ -465,11 +526,13 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 | `AuthServiceTest` | `@ApplicationModuleTest` | 최초 등록 `newUser=true` / 재호출 `newUser=false` + 사용자 1명 유지(멱등, U2) / `registeredAt` == `createdAt` |
 | `AuthConcurrencyTest` | 비TX 멀티스레드 | **C1** — 같은 익명키 동시 N회 등록 → 사용자 정확히 1명, `newUser=true` 는 정확히 1회, **예외·500 없음**(§6-4). `register` 를 **트랜잭션 밖에서** 호출해야 실제 경쟁이 재현된다 |
 | `AuthTransactionBoundaryTest` | 단위(리플렉션) | **함정 ④ 회귀 방지** — `AuthService.register` 에 `@Transactional` 이 **붙어 있지 않음**을, `UserWriter.insert` 가 **`REQUIRES_NEW`** 임을 단언한다. 사람이 무심코 붙이는 순간 실패한다 |
+| `AuthConcurrencyTest` 의 **로그 단언 (v2)** | 비TX 멀티스레드 | **U6 회귀 방지(blockers B4)** — 경쟁을 실제로 일으킨 뒤 **캡처한 로그에 익명키 원문이 없음**을 단언한다. §3-2 해시 저장이 풀리면 이 테스트가 먼저 빨개진다 |
 | `AnonymousKeyFilterTest` | 단위 (기존 확장) | 정상/공백/없음(기존 3케이스 유지) + 형식 위반 시 인증 미설정 & attribute `MALFORMED` + 정상 시 attribute 없음 |
 | `AnonymousKeyEntryPointTest` | 단위 | attribute `MALFORMED` → `AUTH_002` / `MISSING` → `AUTH_001` / attribute 없음 → `AUTH_001` / 응답이 `ErrorResponse` JSON·401 · **본문에 익명키 원문 없음**(U6) |
 | `AnonymousKeyFormatTest` | 단위 | `isValid` 경계값 / `mask` 가 앞 4자만 남김 · 4자 미만 입력에서도 원문이 새지 않음(U6) |
 | `SecurityGateTest` | `@SpringBootTest` + MockMvc | 게이트 통합 — 공개 경로는 헤더 없이 200 / 보호 경로는 헤더 없이 401 `AUTH_001` / 형식 위반 401 `AUTH_002` / 정상 헤더 200 |
-| `ModularityTest` | 구조 (기존) | `auth` 의 `allowedDependencies` 가 `shared` 뿐임을 `verify()` 가 강제. **`auth → subscription` 이 생기면 즉시 실패**(§2-2 불변식) |
+| `ModularityTest` | 구조 (기존) | `auth` 의 `allowedDependencies` 가 `shared` 뿐임을 `verify()` 가 강제 |
+| `AuthModuleBoundaryTest` **(v2 — 구현에서 신설)** | 구조 | **`verify()` 가 못 잡는 불변식**을 고정한다: ⓐ auth 에 컨트롤러가 없음(§5-3) ⓑ `allowedDependencies` 가 `shared` 뿐임(§2-2 — `verify()` 는 `subscription` 을 **적어 넣으면 오히려 정상으로 본다**) ⓒ **수동 DDL ↔ 엔티티 매핑 대조**(§3-1) ⓓ 입력 상한이 저장 길이를 따라가지 않음(§12-2 v2) |
 
 **어떤 테스트가 어떤 라인을 덮는가**
 
@@ -479,6 +542,7 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 | `auth/internal/User.java` | `AuthServiceTest` | 생성자·게터 |
 | `auth/internal/UserRepository.java` | `AuthServiceTest` | 인터페이스(구현 라인 없음) |
 | `auth/internal/UserWriter.java` | `AuthServiceTest` + `AuthConcurrencyTest` | 정상 삽입 + 경쟁 시 롤백 경계(§6-4) |
+| `auth/internal/AnonymousKeyHasher.java` **(v2)** | `AnonymousKeyHasherTest` | 결정성(같은 입력 → 같은 해시) · 64자 hex · 서로 다른 입력의 비충돌 |
 | `auth/dto/Registration.java` | — | `dto/**` 커버리지 제외([testing.md](../rule/testing.md)) |
 | `shared/security/AnonymousKeyFilter.java` | `AnonymousKeyFilterTest` | 3분기 전부 |
 | `shared/security/AnonymousKeyEntryPoint.java` | `AnonymousKeyEntryPointTest` + `SecurityGateTest` | 분기 + 직렬화 |
@@ -493,8 +557,10 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
   **격리 수준 차이 자체는 테스트로 재현할 수 없다.** §6-4 채택안이 격리 수준에 의존하지 않도록 설계된
   이유가 이것이다 — 재현할 수 없는 차이는 **의존하지 않는 것**으로만 막을 수 있다.
   `AuthTransactionBoundaryTest` 가 그 설계 전제(바깥 트랜잭션 없음)를 지키는 감시자 역할을 한다.
-- 시간 검증은 `Clock` 빈([TimeConfig](../../src/main/java/kang20/ytcreator/config/TimeConfig.java))을
-  고정해 수행한다 — `LocalDateTime.now()` 직접 호출 금지([testing.md](../rule/testing.md)).
+- ⚠️ **`registeredAt` 은 `Clock` 고정으로 절대값을 단언할 수 없다**(§12-4, blockers B3).
+  `createdAt` 은 JPA Auditing 이 채우고 그 시간 제공자는
+  [TimeConfig](../../src/main/java/kang20/ytcreator/config/TimeConfig.java) 의 `Clock` 빈을 보지 않는다.
+  → **`registeredAt == 저장된 행의 createdAt`** 같은 **상대 비교**로 검증한다.
 
 ---
 
@@ -529,7 +595,13 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
   작업이며 단독으로는 출시 가치가 없다. 이 점을 인정하고 진행할지 확인이 필요하다.
 - 대안(반쪽 `bootstrap` 을 먼저 내보내기)을 택한다면 §8 의 REST Docs 판단과 §11 순서가 함께 바뀐다.
 
-### 12-2. `anonymousKey` 컬럼 길이 — auth.md 🔶-3 이 데이터 모델에 닿는다
+### 12-2. ~~`anonymousKey` 컬럼 길이~~ — **해소됨 (v2)**
+
+> **§3-2 의 해시 저장 결정으로 길이가 64 로 고정되어 이 항목은 닫혔다.**
+> 단 **🔶-3(들어오는 원문의 형식 규격)은 여전히 열려 있다** — 저장 길이와 입력 검증은 별개다.
+> 아래는 결정 경위 보존용이다.
+
+<details><summary>원문(해소 전)</summary>
 
 - auth.md 🔶-3 은 *"설계 착수를 막지 않는다 — 데이터 모델·모듈 매핑·흐름 어디에도 영향이 없다"* 고
   적었으나, **컬럼 길이와 `isValid` 상수에는 직접 닿는다.** 그 서술은 과했다.
@@ -537,6 +609,11 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
   `ALTER TABLE` 수동 DDL 이 필요하다(§3-1). **길이를 줄이는 방향이면 기존 행 검증이 선행**되어야 한다.
 - 형식 규칙(`isValid`)은 스파이크 전까지 **"공백 아님 + 255자 이하"** 최소선으로만 구현하고,
   문자셋 제한은 넣지 않는다 — 실제 hash 문자셋을 모른 채 좁히면 정상 사용자를 막는다.
+
+</details>
+
+> ⚠️ 위 마지막 불릿(입력 형식 검증 `isValid`)은 **해소되지 않았고 그대로 유효하다.**
+> 해시 저장은 **저장 측** 결정이고, `isValid` 는 **입력 측** 방어선이다.
 
 ### 12-3. `registeredAt` 의 직렬화 형식 — 기존 문서 두 개가 서로 어긋난다
 
@@ -555,8 +632,34 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 - 이 설계서에서 임의로 정하지 않는다. `docs/server/api-spec.md` 신설(auth.md §10-7) 시
   **공통 규약으로 한 번에 정하기**를 권한다.
 
+### 12-4. JPA Auditing 을 `Clock` 빈에 연결할 것인가 — **이번엔 하지 않는다** (blockers B3)
+
+- `BaseTimeEntity.createdAt` 은 `@CreatedDate` 로 채워지고, 그 주체는 Spring Data 의 기본
+  시간 제공자다. **[testing.md](../rule/testing.md) 가 요구하는 "시간은 주입받는다" 원칙이
+  이 경로에서만 관철되지 않는다.**
+- 연결하려면 `JpaAuditingConfig` 에 `Clock` 기반 시간 제공자를 등록해야 하는데, 이는
+  **auth 만의 결정이 아니라 전 도메인의 `createdAt` 에 영향을 주는 공통 선례**다.
+- 이번 도메인은 상대 비교로 충분하므로(§10) **범위 밖으로 둔다.** 사용자에게 보이는 시각을 다루는
+  도메인(구독 만료·작업 생성 시각)이 나올 때 §12-3 과 **함께** 결정하는 것이 맞다 — 둘 다 시각 문제다.
+
 ---
+
+### 12-5. 🔶 경쟁 처리에서 잡는 예외를 좁힐 것인가 (코드 리뷰 권고-4)
+
+- 현재 `catch (DataIntegrityViolationException)` 은 **UNIQUE 위반 외의 제약 위반도 함께 잡는다.**
+  그 경우 §6-4 ③ 재조회가 비어 `orElseThrow()` 가 **원인·식별자 없는 500** 을 낸다.
+- 가설이 아니다 — `AuthServiceTest` javadoc 이 *"`createdAt` 이 null 로 들어가 NOT NULL 위반이 나고,
+  그 예외가 `DataIntegrityViolationException` 이라 경쟁 처리 분기로 잘못 흘러간다"* 를 이미 적고 있다.
+- **제안**: `DuplicateKeyException`(Spring 표준 변환, H2·MySQL 동일)으로 좁히고,
+  `orElseThrow` 에 **해시를 실은** 메시지를 남긴다(해시는 U6 위반이 아니다).
+- 이번 라운드 범위 밖으로 두었다 — 🟡 권고였고 **사용자가 필수 3건만 수정하기로 결정**했다(08-07).
 
 ## 13. 버전 이력
 
-v1 이므로 없음(v2 이상에서 작성).
+| 버전 | 대응 유스케이스 | 날짜 | 설계 변경 | 마이그레이션 |
+|---|---|---|---|---|
+| v2 | auth.md **v2** | 08-07 | §5-2 공개 경로 `~~/actuator/health~~ → /actuator/**` · §5-2/§7 `.cors()` 추가 · **§3-2 신설 — 익명키를 SHA-256 해시로 저장** · §4 `+AnonymousKeyHasher` · §12-2 해소 · §12-4 신설 | **없음 — 아직 배포 전이고 `users` 행이 0개다.** `deploy/sql/auth-v1.sql` 을 컬럼 `anonymous_key_hash VARCHAR(64)` 로 **다시 쓰면 끝난다**(ALTER 아님) |
+
+- v2 는 전부 **구현 라운드에서 실측으로 드러난 것**이다(blockers B1·B2·B4). 설계 검토만으로는 안 나왔다.
+- ⚠️ **해시 저장을 지금 하는 이유가 이 표에 있다** — 행이 0개인 지금은 마이그레이션이 “없음”이지만,
+  배포 후에는 전 행 재계산 + 원문 폐기 절차가 붙는다. **되돌리기 비용이 비대칭이다.**
