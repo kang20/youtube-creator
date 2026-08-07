@@ -195,8 +195,9 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
 
 ```
 AuthService
-  Registration register(String anonymousKey)      -- @Transactional. 멱등(U2). §5-1
-                                                     경쟁 시 UNIQUE 위반을 흡수해 기존 사용자를 돌려준다(§6)
+  Registration register(String anonymousKey)      -- ⚠️ @Transactional 없음(의도적). 멱등(U2). §5-1·§6-4
+                                                     경쟁 시 UNIQUE 위반을 흡수해 기존 사용자를 돌려준다
+                                                     (트랜잭션 경계는 §6-4 판정 매트릭스가 정본)
     └─ UserWriter 를 주입받아 호출한다              -- 자기 호출이면 REQUIRES_NEW 가 안 걸린다(§6-4)
 
 UserWriter                                        -- internal. AuthService 와 반드시 다른 빈
@@ -223,17 +224,18 @@ AnonymousKeyEntryPoint implements AuthenticationEntryPoint
 ### 5-1. `AuthService.register` — U2·U4 구현
 
 ```
-register(anonymousKey):                      -- @Transactional
-  1. findByAnonymousKey(anonymousKey)
+register(anonymousKey):                      -- ⚠️ 트랜잭션 없음 (의도적 — §6-4)
+  1. findByAnonymousKey(anonymousKey)                                 -- 자체 트랜잭션(읽기)
        존재 → return Registration(newUser=false, 기존.createdAt)      -- 멱등(U2)
-  2. 없음 → save(new User(anonymousKey))
+  2. 없음 → userWriter.insert(anonymousKey)                           -- 별도 쓰기 트랜잭션
        성공          → return Registration(newUser=true, 신규.createdAt)
        UNIQUE 위반   → §6 경쟁 처리로 위임 (예외를 밖으로 흘리지 않는다)
 ```
 
 - **형식 검증은 여기서 하지 않는다.** 요청이 여기 도달했다는 것은 이미 필터·게이트를 통과했다는
   뜻이다(U5 는 `shared/security` 소관, §4). 서비스가 다시 검사하면 책임이 두 곳으로 갈린다.
-- **롤백 의미**: 등록은 단일 행 삽입이라 부분 성공이 없다.
+- **`register` 에 `@Transactional` 을 붙이지 않는다.** 붙이면 오히려 깨진다 — 근거는 §6-4.
+- **롤백 의미**: 쓰기는 단일 행 삽입 하나뿐이라 부분 성공이 없다. 감쌀 원자성이 애초에 없다.
 
 ### 5-2. 게이트 판정 — U1·U3·U5 구현
 
@@ -290,6 +292,21 @@ JPA 는 제약 위반이 나면 그 트랜잭션을 **rollback-only** 로 표시
 존재하지 않는 행에는 비관적 락을 걸 대상이 없다. 테이블 락이나 별도 잠금 테이블은
 진입 경로 전체를 직렬화한다 — 검수 기준(2초)과 정면 충돌한다.
 
+**함정 ④: 삽입만 분리하고 바깥을 트랜잭션으로 감싸면, 이번엔 재조회가 거짓말한다.**
+함정 ②를 피하려고 삽입만 별도 트랜잭션으로 빼도, **바깥을 `@Transactional` 로 감싸면 새 문제가 생긴다.**
+MySQL InnoDB 기본 격리 수준 `REPEATABLE READ` 는 트랜잭션의 **첫 읽기 시점에 스냅샷을 고정**한다.
+
+```
+바깥 TX:  findByAnonymousKey → 없음    ← 여기서 스냅샷 고정 ("없음"으로)
+          insert (별도 TX)   → UNIQUE 위반
+          findByAnonymousKey → 여전히 "없음"    ← 경쟁자가 커밋했어도 스냅샷 밖이다
+```
+
+→ 재조회가 빈 결과를 돌려주고 거기서 터진다.
+⚠️ **더 나쁜 것은 이 결함이 테스트에서 안 잡힌다는 점이다.** H2 기본 격리는 `READ COMMITTED` 라
+매번 새로 읽는다. 테스트 프로파일의 `MODE=MYSQL`([testing.md](../rule/testing.md))은 **문법 호환 모드일
+뿐 격리 수준을 바꾸지 않는다.** 즉 **H2 에서는 통과하고 MySQL 에서 터진다** — 가장 나쁜 형태다.
+
 ### 6-3. 대안 비교와 채택
 
 | 방식 | 판정 | 이유 |
@@ -298,22 +315,40 @@ JPA 는 제약 위반이 나면 그 트랜잭션을 **rollback-only** 로 표시
 | 같은 TX 안에서 예외 catch | ❌ | 함정 ② — rollback-only 라 커밋이 터진다 |
 | 비관적 락 / 잠금 테이블 | ❌ | 함정 ③ — 진입 경로 직렬화. 얻는 것보다 잃는 게 크다 |
 | DB `INSERT ... ON DUPLICATE KEY` (네이티브) | △ | 동작은 하나 **H2(MySQL 모드) 와 MySQL 문법이 갈려** 테스트 환경에서 검증이 안 된다([testing.md](../rule/testing.md)) |
-| **삽입을 `REQUIRES_NEW` 로 분리 → 위반 시 재조회** | ✅ **채택** | 실패가 **바깥 트랜잭션을 오염시키지 않는다**. 표준 JPA 라 H2·MySQL 양쪽에서 동일 동작 |
+| 바깥 `@Transactional` + 삽입만 `REQUIRES_NEW` | ❌ | 함정 ④ — 재조회가 바깥 스냅샷에 갇힌다. **H2 는 통과하고 MySQL 만 터지는** 형태라 더 위험하다 |
+| 바깥 `@Transactional(READ_COMMITTED)` 로 고정 | △ | 동작하나 **정합성이 격리 수준이라는 숨은 지식에 매달린다.** 누가 어노테이션을 정리하다 지우면 조용히 깨진다 |
+| **바깥 트랜잭션 없음 + 삽입만 `REQUIRES_NEW`** | ✅ **채택 (2026-08-07 사용자 결정)** | 호출마다 새 트랜잭션 → **새 스냅샷**. 정합성이 **격리 수준에 아예 의존하지 않게** 된다 |
 
 ### 6-4. 채택안 상세
 
 ```
-AuthService.register(anonymousKey):           -- @Transactional (읽기 경계)
-  기존 = userRepository.findByAnonymousKey
+AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙이지 않는다
+  기존 = userRepository.findByAnonymousKey            -- 자체 트랜잭션 ①
   기존 있음 → Registration(false, 기존.createdAt)
 
   try:
-     신규 = userWriter.insert(anonymousKey)            -- 다른 빈 → REQUIRES_NEW 가 실제로 걸린다
+     신규 = userWriter.insert(anonymousKey)            -- 다른 빈 → REQUIRES_NEW 가 실제로 걸린다 ②
      return Registration(true, 신규.createdAt)
   catch DataIntegrityViolationException:              -- 경쟁에서 졌다
-     경쟁자 = userRepository.findByAnonymousKey        -- 이제는 반드시 존재한다
+     경쟁자 = userRepository.findByAnonymousKey        -- 자체 트랜잭션 ③ → 새 스냅샷
      return Registration(false, 경쟁자.createdAt)      -- 사용자에겐 "기존 사용자"로 보인다
 ```
+
+#### 왜 바깥 트랜잭션을 없애는 것이 옳은가
+
+- **바깥 트랜잭션은 아무것도 지키고 있지 않았다.** 읽기 1회 · 쓰기 1회(별도 트랜잭션) · 읽기 1회뿐이고,
+  불변식(§6-1)을 실제로 지키는 것은 **DB 의 UNIQUE 제약**이다. 지키는 것 없이 **스냅샷만 붙잡아**
+  함정 ④를 만들고 있었다.
+- 각 리포지토리 호출이 자기 트랜잭션을 가지므로 ③은 **항상 최신 커밋을 본다.**
+  → **정합성이 DB 격리 수준에 의존하지 않는다.** H2 와 MySQL 의 기본 격리가 달라도 결과가 같다.
+  이것이 이 선택의 핵심 이득이다 — 함정 ④의 "테스트는 통과, 운영은 실패" 구조가 **원천 제거**된다.
+- ②의 `REQUIRES_NEW` 는 바깥에 트랜잭션이 없으면 `REQUIRED` 와 동작이 같다. 그래도 **`REQUIRES_NEW` 를
+  유지**한다 — 나중에 누가 `register` 를 트랜잭션 안에서 부르더라도 **쓰기 실패가 그 트랜잭션을
+  오염시키지 않게**(함정 ②) 방어선을 남기기 위해서다.
+
+⚠️ **전제**: `register` 는 **트랜잭션 밖에서 호출**되어야 한다. 트랜잭션 안에서 부르면 ③이 다시
+호출자의 스냅샷에 갇혀 함정 ④가 되살아난다. 유일한 호출 예정자인 `bootstrap`(§2-2)은 두 모듈의
+결과를 합치기만 하므로 트랜잭션을 열 이유가 없다 — **집계 모듈에 `@Transactional` 을 붙이지 않는다.**
 
 #### ⚠️ `UserWriter` 를 별도 빈으로 분리해야 하는 이유 (이 설계의 급소)
 
@@ -330,23 +365,36 @@ AuthService.register(anonymousKey):           -- @Transactional (읽기 경계)
 
 **판정 매트릭스**
 
-| 상황 | 바깥 TX | 안쪽 TX | 응답 |
-|---|---|---|---|
-| 최초 등록 | 정상 커밋 | 커밋 | `newUser=true` |
-| 경쟁에서 짐 | **오염 없음** | 롤백 | `newUser=false` (200) |
-| 기존 사용자 | 정상 커밋 | 실행 안 함 | `newUser=false` |
+| 상황 | ① 조회 TX | ② 삽입 TX | ③ 재조회 TX | 응답 |
+|---|---|---|---|---|
+| 기존 사용자 | 커밋 (행 있음) | 실행 안 함 | 실행 안 함 | `newUser=false` |
+| 최초 등록 | 커밋 (행 없음) | 커밋 | 실행 안 함 | `newUser=true` |
+| 경쟁에서 짐 | 커밋 (행 없음) | **롤백 — 여기서 끝난다** | 커밋 (경쟁자 행 조회) | `newUser=false` (200) |
 
-- **H2 호환성**: `REQUIRES_NEW` 와 UNIQUE 제약 위반 → `DataIntegrityViolationException` 변환은
-  Spring 의 표준 예외 변환이라 H2(MYSQL 모드)에서 동일하게 동작한다. 네이티브 SQL 을 쓰지 않는
-  것이 이 선택의 핵심 이득이다.
-- ⚠️ 안쪽 트랜잭션은 **커넥션을 하나 더 점유**한다. 진입 경로의 최초 1회에만 발생하고 즉시 반납되므로
-  풀 크기에 유의미한 압력이 아니다 — **의도적으로 수용**한다.
+- **경쟁에서 져도 사용자에게는 아무 일도 일어나지 않는다.** 500 이 아니라 정상 200 이고,
+  화면상 "이미 등록된 사용자"와 구분되지 않는다.
+- **③ 이 반드시 행을 찾는 근거**: InnoDB 는 중복 키 삽입 시 상대 트랜잭션이 끝날 때까지 대기시킨다.
+  ② 가 UNIQUE 위반을 받았다는 것은 **경쟁자가 이미 커밋했다**는 뜻이므로, 새 트랜잭션인 ③ 은
+  그 행을 반드시 본다.
+- **DB 이식성**: `REQUIRES_NEW` 와 UNIQUE 위반 → `DataIntegrityViolationException` 변환은 Spring 표준
+  예외 변환이라 H2·MySQL 이 동일하게 동작한다. **네이티브 SQL 도, 격리 수준 가정도 쓰지 않는 것**이
+  이 선택의 핵심 이득이다(§6-3 기각안 대비).
+- ⚠️ 트랜잭션(커넥션)을 최대 3회 여닫는다. 대부분의 요청은 ① 하나로 끝나고(재방문), ②·③ 은
+  생애 최초 진입에만 발생한다 — **의도적으로 수용**한다.
 
 ### 6-5. 의도적으로 수용한 것
 
 - **`newUser` 는 “누가 먼저였는가”에 따라 갈린다.** C1 에서 진 쪽은 방금 만들어진 사용자인데도
   `false` 를 받는다. 온보딩 노출 분기(auth.md §5-2)가 어긋날 수 있으나, 같은 사용자의 중복 호출이라
   **온보딩을 두 번 띄우지 않는 쪽이 오히려 바람직하다.**
+- **`register` 는 원자적이지 않다.** ①·②·③ 이 각각 별개 트랜잭션이므로 중간 상태가 외부에 보인다.
+  감쌀 불변식이 없으므로(§6-4) 문제가 되지 않지만, **나중에 `register` 에 두 번째 쓰기가 추가되면
+  이 전제가 깨진다.** 그때는 트랜잭션 경계를 다시 설계해야 하며 함정 ④가 함께 돌아온다 —
+  이 문단이 그 경고다.
+- **호출자가 트랜잭션을 열지 않는다는 전제에 기대고 있다**(§6-4). 런타임 가드
+  (`TransactionSynchronizationManager` 로 활성 트랜잭션 감지 후 실패)를 둘 수도 있으나,
+  방어 코드가 늘고 그 라인을 덮을 테스트가 또 필요하다. **MVP 에서는 문서 + 리뷰로 지킨다** —
+  호출자가 `bootstrap` 하나뿐이라 감시 비용이 낮다. 호출자가 늘면 재검토한다.
 
 ---
 
@@ -415,7 +463,8 @@ AuthService.register(anonymousKey):           -- @Transactional (읽기 경계)
 | 테스트 | 종류 | 핵심 케이스 |
 |---|---|---|
 | `AuthServiceTest` | `@ApplicationModuleTest` | 최초 등록 `newUser=true` / 재호출 `newUser=false` + 사용자 1명 유지(멱등, U2) / `registeredAt` == `createdAt` |
-| `AuthConcurrencyTest` | 비TX 멀티스레드 | **C1** — 같은 익명키 동시 N회 등록 → 사용자 정확히 1명, `newUser=true` 는 정확히 1회, **예외·500 없음**(§6-4) |
+| `AuthConcurrencyTest` | 비TX 멀티스레드 | **C1** — 같은 익명키 동시 N회 등록 → 사용자 정확히 1명, `newUser=true` 는 정확히 1회, **예외·500 없음**(§6-4). `register` 를 **트랜잭션 밖에서** 호출해야 실제 경쟁이 재현된다 |
+| `AuthTransactionBoundaryTest` | 단위(리플렉션) | **함정 ④ 회귀 방지** — `AuthService.register` 에 `@Transactional` 이 **붙어 있지 않음**을, `UserWriter.insert` 가 **`REQUIRES_NEW`** 임을 단언한다. 사람이 무심코 붙이는 순간 실패한다 |
 | `AnonymousKeyFilterTest` | 단위 (기존 확장) | 정상/공백/없음(기존 3케이스 유지) + 형식 위반 시 인증 미설정 & attribute `MALFORMED` + 정상 시 attribute 없음 |
 | `AnonymousKeyEntryPointTest` | 단위 | attribute `MALFORMED` → `AUTH_002` / `MISSING` → `AUTH_001` / attribute 없음 → `AUTH_001` / 응답이 `ErrorResponse` JSON·401 · **본문에 익명키 원문 없음**(U6) |
 | `AnonymousKeyFormatTest` | 단위 | `isValid` 경계값 / `mask` 가 앞 4자만 남김 · 4자 미만 입력에서도 원문이 새지 않음(U6) |
@@ -440,6 +489,10 @@ AuthService.register(anonymousKey):           -- @Transactional (읽기 경계)
   그건 레포 하한일 뿐이다.
 - 도달 불가 라인을 남기지 않는다. `AuthService` 의 catch 분기는 동시성 테스트로 **실제 경쟁을 만들어**
   덮는다 — 목으로 예외를 흉내 내면 §6-4 의 트랜잭션 경계가 검증되지 않는다.
+- ⚠️ **수용한 검증 한계**: H2 기본 격리는 `READ COMMITTED`, MySQL 은 `REPEATABLE READ` 라
+  **격리 수준 차이 자체는 테스트로 재현할 수 없다.** §6-4 채택안이 격리 수준에 의존하지 않도록 설계된
+  이유가 이것이다 — 재현할 수 없는 차이는 **의존하지 않는 것**으로만 막을 수 있다.
+  `AuthTransactionBoundaryTest` 가 그 설계 전제(바깥 트랜잭션 없음)를 지키는 감시자 역할을 한다.
 - 시간 검증은 `Clock` 빈([TimeConfig](../../src/main/java/kang20/ytcreator/config/TimeConfig.java))을
   고정해 수행한다 — `LocalDateTime.now()` 직접 호출 금지([testing.md](../rule/testing.md)).
 
