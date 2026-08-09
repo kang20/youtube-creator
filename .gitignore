@@ -1,0 +1,39 @@
+# ── 프로젝트 변수/시크릿 (절대 커밋 금지) ──
+vars.env
+**/.env
+*.pem
+*.p12
+*.key
+
+# VM 에서만 관리하는 활성 색 스니펫 (블루-그린)
+backend/deploy/caddy/upstream.caddy
+
+# 홈 네트워크 실값이 들어가는 호스트 운영 스킬
+.claude/skills/pi-ops/
+.claude/settings.local.json
+
+# 구현 사이클의 에이전트 간 인계 보고서 (라운드별 임시 산출물)
+backend/workspace/
+
+# Obsidian 개인 UI 상태(열린 탭·커서 위치) — 노트 내용이 아니라 커밋하지 않는다
+StudyVault/.obsidian/workspace.json
+
+# ── Gradle / JVM ──
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+out/
+*.log
+
+# ── Node (frontend) ──
+node_modules/
+dist/
+.vite/
+*.local
+
+# ── IDE / OS ──
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
