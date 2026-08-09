@@ -13,6 +13,7 @@ Spring Boot 4 · **Spring Modulith** · Java 25 · Gradle(Kotlin DSL) · JPA · 
 - **테스트**: 커버리지 목표 100%(게이트 LINE 95/BRANCH 90), 컨트롤러 테스트 = REST Docs → [docs/rule/testing.md](docs/rule/testing.md)
 - **API 문서**: Spring REST Docs, HTML 만 main push → [docs/rule/rest-docs.md](docs/rule/rest-docs.md)
 - **에러 처리**: ErrorCode enum + BusinessException → [docs/rule/error-handling.md](docs/rule/error-handling.md)
+- **인증 게이트**: 익명키 필터 체인 — 부품은 `shared/security`, 조립은 `config` → [docs/security/security-chain.md](docs/security/security-chain.md)
 - **배포/인프라**: OCI VM 2대 + 블루-그린 → [docs/deploy.md](docs/deploy.md), 스킬 `/infra`
 - **모니터링**: 기존 모니터링 서버에 얹는다 → [monitoring/onboarding/README.md](monitoring/onboarding/README.md)
 
