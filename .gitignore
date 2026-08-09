@@ -15,6 +15,9 @@ backend/deploy/caddy/upstream.caddy
 # 구현 사이클의 에이전트 간 인계 보고서 (라운드별 임시 산출물)
 backend/workspace/
 
+# Obsidian 개인 UI 상태(열린 탭·커서 위치) — 노트 내용이 아니라 커밋하지 않는다
+StudyVault/.obsidian/workspace.json
+
 # ── Gradle / JVM ──
 .gradle/
 build/
