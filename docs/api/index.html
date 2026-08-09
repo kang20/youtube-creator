@@ -488,7 +488,7 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 <div class="sect2">
 <h3 id="_인증"><a class="link" href="#_인증">인증</a></h3>
 <div class="paragraph">
-<p>로그인 없이 쓰는 기능은 토스 미니앱의 익명키를 헤더로 보낸다.</p>
+<p><strong>이 서비스는 토스 로그인을 쓰지 않는다.</strong> 전 구간을 익명키 하나로 식별한다.</p>
 </div>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
@@ -506,14 +506,51 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 <tbody>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>X-Anonymous-Key</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">클라 <code>getAnonymousKey()</code> 결과</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">기능별로 다름</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">클라 <code>getAnonymousKey()</code> 의 hash</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">인증이 필요한 엔드포인트에서 필수</p></td>
 </tr>
 </tbody>
 </table>
 <div class="paragraph">
-<p>익명키는 앱별 고유 해시로 클라가 단독 생성하며 <strong>내부 식별 전용</strong>이다(비밀이 아니다).
-로그인이 필요한 기능(알림 구독·결제 등)은 토스 <code>appLogin()</code> → <code>userKey</code> 교환 경로를 별도로 쓴다.</p>
+<p>익명키는 <strong>미니앱마다 고유</strong>하고 <strong>같은 사용자는 항상 같은 값</strong>을 받는다 — 기기가 아니라
+토스 계정 기준이다. 비밀이 아니라 식별자이지만, 이 서비스에서는 <strong>아는 사람이 곧 그 사용자</strong>가
+되므로 취급 수준은 자격증명에 준한다(원문을 로그·응답에 남기지 않는다).</p>
+</div>
+<div class="sect3">
+<h4 id="_인증_게이트"><a class="link" href="#_인증_게이트">인증 게이트</a></h4>
+<div class="paragraph">
+<p>기본값은 <strong>인증 필요</strong>이며 공개 경로만 열거한다.</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">상황</th>
+<th class="tableblock halign-left valign-top">응답</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">헤더 없음</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">401 <code>AUTH_001</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">헤더 있음·형식 위반</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">401 <code>AUTH_002</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">공개 경로</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">헤더 없이도 200 (있어도 무시)</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p>CORS preflight(<code>OPTIONS</code>)는 게이트를 거치지 않는다 — 브라우저가 preflight 에 커스텀 헤더를
+싣지 않아 원리상 인증될 수 없기 때문이다.</p>
+</div>
 </div>
 </div>
 <div class="sect2">
