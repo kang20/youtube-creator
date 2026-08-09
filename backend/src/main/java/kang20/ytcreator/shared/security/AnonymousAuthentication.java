@@ -43,20 +43,12 @@ public class AnonymousAuthentication extends AbstractAuthenticationToken {
 	}
 
 	/**
-	 * ⚠️ <b>문자열 표현에는 익명키 원문을 넣지 않는다</b>(U6).
+	 * ⚠️ <b>지우지 마라.</b> 상위 구현은 {@code Principal=} 뒤에 값을 그대로 붙이고,
+	 * Spring Security 는 인증된 요청마다 이 객체를 TRACE 로 찍는다 — 재정의하지 않으면
+	 * <b>로거 레벨 한 줄로 전 요청의 익명키가 로그에 남는다</b>(U6).
 	 *
-	 * <p>상위 {@code AbstractAuthenticationToken.toString()} 은 <b>Credentials 만</b> {@code [PROTECTED]} 로
-	 * 가리고 {@code Principal=} 뒤에는 값을 그대로 붙인다. 그리고 Spring Security 의
-	 * {@code AnonymousAuthenticationFilter} 는 <b>이미 인증된 요청마다</b> 이 객체를 TRACE 로 찍는다
-	 * ("Did not set SecurityContextHolder since already authenticated ...").
-	 * 즉 재정의하지 않으면 <b>로거 레벨 한 줄</b>로 인증된 전 요청의 익명키가 로그에 남는다 —
-	 * 로그는 Loki 14일 + gz 영구 아카이브라 되돌릴 수 없다(docs/ops/logging.md §3.3).
-	 *
-	 * <p>blockers B4(제약 위반 메시지에 원문이 실림)와 <b>같은 실패 유형</b>이다:
-	 * <b>우리 코드가 찍지 않아도 프레임워크가 찍는다.</b>
-	 *
-	 * <p>가리는 것은 <b>문자열 표현뿐</b>이다 — {@link #getPrincipal()}·{@link #getAnonymousKey()} 는
-	 * 실제 식별에 쓰이므로 원문을 그대로 돌려준다.
+	 * <p>가리는 것은 <b>문자열 표현뿐</b>이다 — {@link #getPrincipal()} 은 실제 식별에 쓰이므로
+	 * 원문을 그대로 돌려준다. 둘을 뒤바꾸면 인증이 깨진다.
 	 */
 	@Override
 	public String toString() {

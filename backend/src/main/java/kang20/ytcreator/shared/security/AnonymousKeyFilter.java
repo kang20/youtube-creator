@@ -10,22 +10,12 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * X-Anonymous-Key 헤더를 인증 객체로 바꾼다.
+ * X-Anonymous-Key 헤더를 인증 객체로 바꾼다. 사유만 남기고 판정은 인가 규칙이 한다.
  *
- * <p><b>이 필터는 어떤 경우에도 요청을 거부하지 않는다.</b> 헤더가 없어도, 형식이 틀려도 통과시키고
- * 거부 사유만 request attribute 로 남긴다. 공개 엔드포인트는 형식이 틀린 익명키를 무시하고 200 을
- * 줘야 하므로 필터가 끊으면 계약이 깨진다(docs/domain/auth-design.md §2-1 쟁점 2).
+ * <p>⚠️ <b>어떤 경우에도 요청을 거부하지 않는다.</b> 공개 엔드포인트는 형식이 틀린 익명키도 무시하고
+ * 200 을 줘야 하므로, 여기서 끊으면 그 계약이 깨진다(auth-design.md §2-1 쟁점 2).
  *
- * <pre>
- *   헤더 없음/공백 → 인증 미설정 + attribute MISSING   → 판정은 인가 규칙이
- *   형식 위반      → 인증 미설정 + attribute MALFORMED → 판정은 인가 규칙이
- *   정상           → AnonymousAuthentication 설정
- * </pre>
- *
- * <p>공개 경로면 attribute 는 쓰이지 않고 버려지고, 인증 필요 경로면
- * {@link AnonymousKeyEntryPoint} 가 읽어 AUTH_001 / AUTH_002 를 가른다.
- *
- * <p>헤더명은 docs/server/api-spec.md 와 한 글자도 달라선 안 된다(프론트 계약).
+ * <p>헤더명은 프론트 계약이라 한 글자도 바뀌면 안 된다.
  */
 public class AnonymousKeyFilter extends OncePerRequestFilter {
 

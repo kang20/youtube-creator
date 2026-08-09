@@ -12,16 +12,13 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * 인증이 필요한 경로에서 미인증 요청을 401 로 끝낸다.
+ * 미인증 요청을 401 로 끝낸다. 코드는 {@link AnonymousKeyFilter} 가 남긴 거부 사유로 가른다.
  *
- * <p>이 응답은 보안 필터 체인 안에서 끝나므로 {@code GlobalExceptionHandler} 에 도달하지 않는다.
- * 그래서 공통 에러 본문({@link ErrorResponse})을 <b>여기서 직접 직렬화</b>한다 —
- * 그러지 않으면 본문 없는 스프링 기본 401 이 나가고 프론트의 AUTH_001/AUTH_002 분기가 전부 죽는다
- * (docs/domain/auth-design.md §2-1 쟁점 1).
+ * <p>보안 필터 체인 안에서 끝나 {@code GlobalExceptionHandler} 에 닿지 않으므로
+ * {@link ErrorResponse} 를 <b>직접 직렬화</b>한다. 안 그러면 본문 없는 기본 401 이 나가고
+ * 프론트의 AUTH_001/AUTH_002 분기가 죽는다(auth-design.md §2-1 쟁점 1).
  *
- * <p>코드는 {@link AnonymousKeyFilter} 가 남긴 거부 사유로 가른다.
- * <b>익명키 원문은 응답에도 로그에도 넣지 않는다</b>(U6) — 필요하면
- * {@link AnonymousKeyFormat#mask(String)} 을 거친다.
+ * <p>⚠️ 응답·로그에 익명키 원문을 넣지 마라 — 필요하면 {@link AnonymousKeyFormat#mask(String)}.
  */
 public class AnonymousKeyEntryPoint implements AuthenticationEntryPoint {
 
