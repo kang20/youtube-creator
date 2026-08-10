@@ -4,7 +4,9 @@
 > **대응 유스케이스 버전: v1** ← payment.md §9-2 (2026-08-11 결정 17건 전부 확정)
 > 서버 계약(정본): `docs/server/api-spec.md` — **아직 존재하지 않는다.** auth 에 이어 이 도메인도 미입주(payment.md §10-10)
 > 구조 규칙: [architecture.md](../rule/architecture.md) · 에러: [error-handling.md](../rule/error-handling.md) · 테스트: [testing.md](../rule/testing.md) · REST Docs: [rest-docs.md](../rule/rest-docs.md) · 토스: [toss-integration.md](../rule/toss-integration.md)
-> 상태: **설계 확정 대기 — 승인 후 구현 착수**
+> 상태: **설계 확정 (2026-08-11)** — `/implement payment` 호출로 승인. §12 는 아래 결정으로 착수했다:
+>   §12-1 auth.md v3 선반영 완료 · **§12-3 recheck 는 "일단 그대로 신뢰" (사용자 결정 08-11 — 출시 전 재결정, payment.md §4-7-1⑧ⓐ 유지)** ·
+>   §12-4 권고안 채택(저장 `LocalDateTime`·응답 직렬화 시 `+09:00`) · §12-5 정보성(결정 불요)
 > 개정: **2026-08-11 사용자 결정 — 모듈 간 식별을 "해시 복제"에서 "타입화된 기본키 참조"로 전환**(§2-1 쟁점 1).
 > 규칙 정본은 [architecture.md](../rule/architecture.md) "타입화된 기본키" 절 · 구현 선례는 `C:\Spring_Study\youngZZ`
 
@@ -936,8 +938,8 @@ payment.md 가 제시한 후보 3개 중 **설계 관점의 판단**을 덧붙�
 | 운영 알림 | 낮음 | △ 탐지일 뿐 차단이 아니다 |
 | 연장 횟수 상한 | 중간 — 카운터 컬럼 + 리셋 규칙 | △ 상한에 걸린 정상 사용자를 구제할 수단이 **없다**(payment.md §8 — 수동 대응 수단 부재) |
 
-**이 설계서에서 임의로 정하지 않는다.** ✅-4 처럼 **사용자 판단**이 필요한 축이고,
-`/implement` 호출 시 결정하면 §5-5 한 곳만 바뀐다.
+**결정 (2026-08-11, `/implement` 시점 사용자 선택)**: **"일단 그대로 신뢰"** —
+payment.md §4-7-1⑧ⓐ 그대로 구현하고 **출시 전에 재결정**한다. 위 후보 비교표는 그때를 위해 남긴다.
 
 ### 12-4. `expiresAt` 의 직렬화 형식 — auth-design §12-3 이 미룬 결정이 여기서 실제로 문제가 된다
 
