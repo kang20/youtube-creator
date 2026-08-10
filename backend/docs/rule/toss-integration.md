@@ -13,8 +13,9 @@
 
 - 익명키는 **미니앱마다 고유**하고 **같은 사용자는 항상 같은 값**을 받는다 —
   기기가 아니라 **토스 계정 기준**이므로 기기 변경·재설치에도 유지된다.
-- **hash 인증으로 토스 서버 API 도 호출한다** (`x-anon-key` 헤더).
-  프로모션·스마트 발송·토스페이·인앱결제가 토스 로그인 없이 지원된다.
+- **hash 인증으로 토스 서버 API 도 호출한다** (`x-anon-key` 헤더) — 대상은 **프로모션·스마트 발송·토스페이 3종**이다.
+  ⚠️ **인앱결제(IAP)는 여기 없다** — IAP 서버 API 는 **mTLS + `orderId` 단독**이고 `x-anon-key` 를 쓰지 않는다
+  (payment.md §9-1 전제 표에서 확정).
 - ⚠️ **미니앱이 바뀌면 익명키도 바뀐다.** 앱 재출시 시 승계되지 않는다 — 이관 설계가 필요하다.
 - 토스 로그인은 "앱인토스 밖 계정과 같은 사람인지 연결"할 때만 필요하다. 우리는 해당 없음.
   붙이려면 그것 자체가 기획 결정이다 — 임의로 추가하지 않는다.
@@ -68,6 +69,9 @@
 - SDK: `createSubscriptionPurchaseOrder`(주문) · `getSubscriptionInfo`(상태) · 주기 WEEKLY/MONTHLY/YEARLY
 - **구독 소유권의 정본은 우리 DB 의 `anonKey ↔ orderId` 매핑**이다. 로그인이 없으므로 이 매핑이
   끊기면 사용자는 돈을 내고 못 쓴다 — 유니크 제약·백업·정합성 요구가 일반 테이블보다 높다.
+- 구현 형태: `anonKey → users(해시, auth 소유) → UserId → payment 테이블의 user_id FK` —
+  payment 는 익명키를 저장하지 않고 **auth 가 노출한 타입 ID 만** 갖는다
+  (→ [architecture.md](architecture.md) "타입화된 기본키", payment-design §2-1).
 - 상태 변경은 `subscription.status_changed` **웹훅**으로 받는다(CREATED/RENEWED/EXPIRED/REVOKED 등).
   웹훅 URL 은 콘솔에 등록하고 `callback.registration_verification` 을 처리해야 등록이 완료된다.
 - ⚠️ **구독 IAP 는 샌드박스 미지원** — 실결제로만 검증 가능하다. 테스트 계획을 미리 세운다.

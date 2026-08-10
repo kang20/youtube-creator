@@ -5,10 +5,13 @@
 > 서버 계약(정본): `docs/server/api-spec.md` — **아직 존재하지 않는다.** auth 에 이어 이 도메인도 미입주(payment.md §10-10)
 > 구조 규칙: [architecture.md](../rule/architecture.md) · 에러: [error-handling.md](../rule/error-handling.md) · 테스트: [testing.md](../rule/testing.md) · REST Docs: [rest-docs.md](../rule/rest-docs.md) · 토스: [toss-integration.md](../rule/toss-integration.md)
 > 상태: **설계 확정 대기 — 승인 후 구현 착수**
+> 개정: **2026-08-11 사용자 결정 — 모듈 간 식별을 "해시 복제"에서 "타입화된 기본키 참조"로 전환**(§2-1 쟁점 1).
+> 규칙 정본은 [architecture.md](../rule/architecture.md) "타입화된 기본키" 절 · 구현 선례는 `C:\Spring_Study\youngZZ`
 
 > ⚠️ **두 번째 도메인이다.** 선례는 [auth-design.md](./auth-design.md) 하나뿐이고, 이 설계는 그 선례를
-> **세 곳에서 의도적으로 벗어난다**: ⓐ 외부 API 를 호출한다 ⓑ 엔티티가 3개이고 한 트랜잭션에서
-> 함께 쓰인다 ⓒ 잡는 예외를 `DuplicateKeyException` 으로 좁힌다(auth-design §12-5 권고 반영).
+> **네 곳에서 의도적으로 벗어난다**: ⓐ 외부 API 를 호출한다 ⓑ 엔티티가 4개이고 한 트랜잭션에서
+> 함께 쓰인다 ⓒ 잡는 예외를 `DuplicateKeyException` 으로 좁힌다(auth-design §12-5 권고 반영)
+> ⓓ **타입화된 기본키 참조 패턴을 처음 적용한다** — auth 의 `Registration` 계약이 함께 바뀐다(auth-design **v3**).
 
 ---
 
@@ -21,8 +24,10 @@
 
 - 신규 모듈 `payment` — 상품·지급·이용권·소모·웹훅·STALE 해소 (U1~U14 · §4-7-1)
 - 신규 모듈 `bootstrap` — `auth` + `payment` 집계. **auth-design §12-1 이 미룬 것이고, 미룬 사유(`payment` 부재)가 해소됐다**
-- `shared/security` 확장 — `AnonymousKeyHasher` 를 `auth/internal` 에서 **승격 이동**(§7)
-- `config/SecurityConfig` 변경 — 공개 경로 3개 추가(상품 조회·웹훅·부트스트랩은 인증 필요)
+- `auth` 확장 — **`UserId` 타입 노출**(모듈 루트) + `Registration` 에 `userId` 추가 → **auth-design v3**(§7·§12-1)
+- `shared/domain` 확장 — 타입 ID 공통 부모(`ValueObject`·`LongTypeIdentifier`·`LongTypeIdentifierJavaType`) —
+  [architecture.md](../rule/architecture.md) "타입화된 기본키" 절이 규칙 정본
+- `config/SecurityConfig` 변경 — 공개 경로 **2개** 추가(상품 조회·웹훅. 부트스트랩은 인증 필요라 공개 경로가 아니다)
 - `ErrorCode` 에 `PAY` 섹션 7건 추가
 - 신규 테이블 4개 + 수동 DDL 1본
 - 🔴 **신규 adoc 2본 — 스키마뿐 아니라 클라 SDK 연동 계약(K1~K20)까지 싣는다**(§8-1).
@@ -42,18 +47,20 @@
 
 ## 2. 도메인 경계
 
-**책임** — `payment` 는 **"이 익명키가 무엇을 쓸 수 있는가"** 에 단일 권위를 갖는다.
-그 이상은 알지 않는다: 사용자가 누구인지도, 작업이 무엇인지도 모른다. **아는 것은 익명키 해시뿐**이다.
+**책임** — `payment` 는 **"이 사용자가 무엇을 쓸 수 있는가"** 에 단일 권위를 갖는다.
+그 이상은 알지 않는다: 사용자가 누구인지도, 작업이 무엇인지도 모른다.
+**식별에 쓰는 것은 auth 가 노출한 `UserId` 뿐이다 — 익명키를 저장·식별에 쓰지 않는다.**
+(익명키 수신은 컨트롤러 1곳뿐이고 즉시 `UserId` 로 해석해 버린다 — §2-1 쟁점 1)
 
 **다른 모듈과의 관계**
 
 | 상대 모듈 | 관계 | 경계 처리 |
 |---|---|---|
-| `shared` | 사용 (OPEN) | 자유 참조. `BaseTimeEntity`·`ErrorCode`·`BusinessException`·**`AnonymousKeyHasher`(§7 로 이동)** |
+| `shared` | 사용 (OPEN) | 자유 참조. `BaseTimeEntity`·`ErrorCode`·`BusinessException`·**타입 ID 공통 부모(`shared/domain`)** |
 | `config` | 역방향 참조당함 | `SecurityConfig` 가 공개 경로에 웹훅·상품 경로를 연다. **`config` → `payment` 의존은 만들지 않는다** |
-| `auth` | **없음** | 🔴 **payment 는 auth 를 참조하지 않는다** — 근거 §2-1 쟁점 1 |
+| `auth` | **사용** — `allowedDependencies` 명시 | ⓐ **`UserId` 타입 참조**(FK 컬럼·시그니처) ⓑ 컨트롤러가 `AuthService.register` 로 익명키→`UserId` 해석(멱등·자동 등록). **`auth/internal` 은 여전히 불가** — 근거 §2-1 쟁점 1 |
 | `bootstrap` | **참조당함** | `bootstrap` → `payment` 단방향. `PaymentService` 직접 호출 |
-| `subtitle` (미존재) | **참조당함(예정)** | `subtitle` → `payment` 단방향. 소모 API 를 호출한다. **payment 는 subtitle 을 영원히 모른다** |
+| `subtitle` (미존재) | **참조당함(예정)** | `subtitle` → `payment` 단방향. 소모 API 를 `UserId`·`UsageTicketId` 로 호출한다. **payment 는 subtitle 을 영원히 모른다** |
 
 - **이벤트를 발행하지 않는다.** [architecture.md](../rule/architecture.md) 는 이벤트를 우선하지만,
   MVP 에 `EntitlementGranted`·`SubscriptionRevoked` 를 구독할 모듈이 **하나도 없다.**
@@ -63,27 +70,40 @@
 
 ### 2-1. ⚠️ 설계 쟁점
 
-#### 쟁점 1 — `payment` 는 `auth` 를 참조하지 않는다. 그런데 해셔가 `auth/internal` 에 있다
+#### 쟁점 1 — payment 는 사용자를 무엇으로 기억하는가 (2026-08-11 사용자 결정 — 패러다임 전환)
 
-**문제.** payment 는 소유권을 **익명키 해시**로 잡는다(§3). 원문 저장은 auth-design §3-2 가 금지했다 —
-UNIQUE 위반 메시지에 실려 로그로 새고, payment 는 **UNIQUE 위반을 정상 흐름으로 삼는 설계**(§6)라
-auth 보다 발생 빈도가 오히려 높다.
-
-그런데 해시를 만드는 `AnonymousKeyHasher` 가 **`auth/internal/`** 에 있다 — Modulith 가 외부 참조를 차단한다.
-
-**선택지 3개**
+**문제.** payment 의 모든 엔티티는 "누구의 것인가"를 저장해야 한다. 후보는 셋이다.
 
 | 안 | 판정 | 이유 |
 |---|---|---|
-| `payment` 가 `auth` 를 `allowedDependencies` 에 넣고 해셔를 쓴다 | ❌ | `internal/` 이라 애초에 불가능하다. `AuthService` 를 뚫어도 **`Registration` 에 식별자가 없어**(auth-design §4) 얻을 것이 없다 |
-| `payment` 가 자체 해셔를 복제한다 | ❌ | 알고리즘이 갈리면 **같은 사용자가 두 도메인에서 다른 키를 갖는다.** 조용히 깨지고 테스트로 안 잡힌다 |
-| **`AnonymousKeyHasher` 를 `shared/security` 로 올린다** | ✅ **채택** | 해시는 게이트 부품과 같은 성격 — **전 도메인 공통 식별 수단**이지 auth 의 소유물이 아니다 |
+| **익명키 해시를 자체 저장** + `AnonymousKeyHasher` 를 `shared/security` 로 승격 | ❌ **기각 (초안 채택안이었다)** | ⓐ 같은 해시가 **테이블 4개에 복제**되고 `users` 와의 일치를 아무도 보장하지 않는다 ⓑ 해싱이라는 auth 의 권위가 shared 로 새어 나간다 ⓒ **익명키 이관·재출시(payment.md R12) 시 payment 전 행 마이그레이션**이 필요해진다 ⓓ UNIQUE 위반 메시지에 해시가 실린다(원문보다는 낫지만 U14 표면) |
+| 원시 `Long` FK | ❌ | "어느 도메인의 Long 인가"가 시그니처에서 사라진다. `ticketId`·`userId` 혼용을 컴파일러가 못 잡는다 |
+| **`User` 기본키를 타입화한 `UserId` 를 FK 로 저장** | ✅ **채택** | ⓐ **모듈이 노출하는 것은 엔티티가 아니라 기본키 타입뿐** — `User` 는 `internal/` 에 남는다 ⓑ 해시는 `users` 한 곳에만 존재 — **이관 시 갱신 지점이 한 곳**으로 준다 ⓒ payment 테이블·로그 어디에도 익명키 파생값이 없다 ⓓ 타입이 혼용을 컴파일 타임에 잡는다 |
 
-> **auth-design §3-2 가 이미 예고한 이동이다** — *"다른 도메인 선례: `subscription` 도 익명키↔주문 매핑을
-> 보관한다. 같은 이유로 해시 저장이 맞다 — **이 결정이 그 선례가 된다**"*. 그 시점이 지금이다.
+> 규칙 정본: [architecture.md](../rule/architecture.md) "모듈 간 데이터 참조 — 타입화된 기본키".
+> 구현 선례: `C:\Spring_Study\youngZZ` — `Comment.authorId(AnonymousUserId)` 등 전 도메인 검증.
+> ⚠️ 초안 채택안(해시 승격)의 기각 근거였던 *"`Registration` 에 식별자가 없어 얻을 것이 없다"* 는
+> **auth-design §4 의 결정을 뒤집는 것으로 해소한다** — `Registration` 에 `UserId` 를 담는다(auth-design **v3**, §7).
 
-**결과** — `payment.allowedDependencies = { "shared" }`. auth 와 나란히 가장 밑에 놓인다.
-**두 도메인은 서로를 모른 채 같은 해시로 같은 사용자를 가리킨다.**
+**Modulith 번역** — youngZZ 는 자유 import 가 되지만 우리는 경계가 강제된다:
+
+- `UserId`·`UserIdJavaType` 은 **auth 모듈 루트**에 둔다 — "모듈 루트 public 타입만 외부에 보인다" 규칙 그대로.
+- `payment.allowedDependencies = { "shared", "auth" }`. **auth 는 payment 를 모른다** — 단방향이라 순환 없음.
+- 공통 부모(`ValueObject`·`LongTypeIdentifier`·`LongTypeIdentifierJavaType`)는 `shared/domain` — OPEN 모듈.
+
+**익명키 → `UserId` 해석은 누가 하나** — youngZZ 는 웹 계층(ArgumentResolver)에서 하지만, 그 resolver 가
+auth 를 참조해야 해서 우리 구조에선 `shared → auth` 역방향 의존이 생긴다(shared 는 최하층).
+**payment 의 컨트롤러가 `AuthService.register(anonKey).userId()` 를 직접 부른다** —
+
+- `register` 는 **멱등**이라 몇 번 불러도 안전하고, **부트스트랩을 안 거친 첫 결제 사용자도 자동 등록**된다
+  (payment.md §4-10 의 "결제 API 가 결제를 요구할 수 없다"와 모순 없음 — 사용자에게 요구하는 것이 없다).
+- ⚠️ **auth-design §6-4 전제(트랜잭션 밖 호출)를 지켜야 한다.** 컨트롤러는 트랜잭션이 없어 양립하지만,
+  **`GrantWriter`(REQUIRES_NEW) 안에서 부르면 함정 ④가 되살아난다** — §6-5·§10 이 감시한다.
+- `PaymentService` 의 사용자 단위 메서드는 **전부 `UserId` 를 받는다.** 익명키가 payment 모듈에
+  들어오는 지점은 컨트롤러 한 곳뿐이고, 저장되는 곳은 없다.
+
+**결과** — payment 와 auth 는 `UserId` 하나로 이어진다. **auth 는 "익명키 ↔ 사용자"에,
+payment 는 "사용자 ↔ 이용권"에 각자 단일 권위**를 갖고, 겹치는 데이터가 없다.
 
 #### 쟁점 2 — 토스 왕복을 트랜잭션 안에 넣으면 두 가지가 동시에 깨진다
 
@@ -133,7 +153,7 @@ PaymentWebhookController → WebhookAuthenticator.verify(Authorization 헤더)
 | 위험 | 왜 생기나 | 차단 |
 |---|---|---|
 | `payment ↔ subtitle` | 소모 실패 시 payment 가 작업을 되돌리려 하면 `payment → subtitle` 이 생긴다 | **되돌림은 `subtitle` 이 `release()` 를 호출해서 한다**(§5-6). payment 는 티켓만 알고 작업을 모른다 |
-| `payment → auth` | 사용자 존재 확인을 하고 싶어진다 | **하지 않는다.** 익명키 게이트를 통과한 요청은 이미 형식이 검증됐고, **결제하려는 사용자에게 등록을 요구할 이유가 없다**(payment.md §4-10) |
+| `auth ↔ payment` | `payment → auth` 는 이제 **의도된 의존**이다(쟁점 1). 순환은 **auth 가 payment 를 알게 될 때** 생긴다 | **auth 는 payment 를 영원히 참조하지 않는다** — auth-design 의 "auth 는 subscription 을 영원히 참조하지 않는다" 불변식 그대로. `ModularityTest` 가 강제한다 |
 | `bootstrap` 순환 | 없음 | `bootstrap` 이 양쪽을 한 방향으로만 참조 |
 
 ### 2-2. `bootstrap` 모듈 — auth-design §2-2 설계를 그대로 구현한다
@@ -141,9 +161,14 @@ PaymentWebhookController → WebhookAuthenticator.verify(Authorization 헤더)
 ```
 POST /api/v1/bootstrap
    └─▶ bootstrap (allowedDependencies = { shared, auth, payment })
-          ├─▶ AuthService.register(anonymousKey)          → newUser, registeredAt
-          └─▶ PaymentService.entitlementOf(anonymousKey)  → 이용권 상태
+          ├─▶ AuthService.register(anonymousKey)       → newUser, registeredAt, userId
+          └─▶ PaymentService.entitlementOf(userId)     → 이용권 상태   ← auth 해석 결과를 그대로 넘긴다
 ```
+
+- **auth 왕복은 1회로 끝난다** — `register` 가 돌려준 `UserId` 를 payment 에 넘기므로
+  payment 가 다시 해석하지 않는다.
+- ⚠️ **`BootstrapResponse` 에 `userId` 를 싣지 않는다.** auth.md §5-2 확정 계약(HTTP 응답)에 없는 필드다 —
+  `UserId` 는 **서버 내부 식별자**이지 프론트 계약이 아니다.
 
 - **자기 저장소를 갖지 않는다.** 엔티티가 생기면 그건 집계가 아니라 새 도메인이다(auth.md §4-7).
 - ⚠️ **`@Transactional` 을 붙이지 않는다.** `AuthService.register` 는 트랜잭션 밖에서 호출돼야 하고
@@ -158,50 +183,55 @@ POST /api/v1/bootstrap
 
 **4개다. 축이 서로 다르기 때문이고, 하나로 합치면 §6 의 동시성 대책이 전부 한 행에 몰린다.**
 
+**사용자 식별은 전부 `UserId`(auth 노출 타입, BIGINT 매핑) 다** — 익명키 파생값을 저장하는 컬럼이 없다(§2-1 쟁점 1).
+
 ```
 PaymentOrder                      -- 주문 원장. 멱등(U3)·선점(U4)의 유일한 근거
-  id                Long          -- surrogate PK, IDENTITY
+  id                Long          -- surrogate PK, IDENTITY. 비노출이라 원시 Long (아래 불릿)
   orderId           String(64)    -- 토스 주문 ID (uuid v7 — ✅-12). **UNIQUE**
-  anonymousKeyHash  String(64)    -- 소유자. SHA-256 hex
+  userId            UserId        -- 소유자. @JavaType 값 컬럼(user_id BIGINT) — 연관관계 아님
   sku               String(128)   -- 토스 응답의 sku (클라 주장이 아니다 — payment.md §5-4)
   productType       enum          -- CONSUMABLE | SUBSCRIPTION
   createdAt/updatedAt             -- BaseTimeEntity. createdAt = 지급 시각
   UNIQUE (order_id)               -- 🔴 멱등의 근거. 동시 지급 경쟁을 DB 가 최종 판정한다(§6-3)
-  INDEX  (anonymous_key_hash)     -- 소유 주문 조회
+  INDEX  (user_id)                -- 소유 주문 조회
 
-CreditBalance                     -- 횟수권 잔량. 익명키당 1행
+CreditBalance                     -- 횟수권 잔량. 사용자당 1행
   id                Long
-  anonymousKeyHash  String(64)    -- **UNIQUE**
+  userId            UserId        -- **UNIQUE**
   balance           int           -- ⚠️ 음수 불가. CHECK 가 아니라 조건부 UPDATE 로 지킨다(§6-4)
   createdAt/updatedAt
-  UNIQUE (anonymous_key_hash)
+  UNIQUE (user_id)
 
 Subscription                      -- 기간권. 구독 주문당 1행
   id                Long
   orderId           String(64)    -- 최초 구독 주문 ID. **UNIQUE**. 웹훅이 이 값으로 찾아온다
-  anonymousKeyHash  String(64)    -- **UNIQUE** — 한 사용자에게 활성 구독은 하나다
+  userId            UserId        -- **UNIQUE** — 한 사용자에게 활성 구독은 하나다
   status            enum          -- ACTIVE|EXPIRED|IN_GRACE_PERIOD|ON_HOLD|PAUSED|REVOKED
   expiresAt         LocalDateTime -- 만료 예정. **최초엔 추정값(결제일+31일 — §4-7-1④)**
   autoRenew         boolean
   lastWebhookOccurredAt LocalDateTime  -- 순서 역전 판정용. ⚠️ recheck 는 이 값을 갱신하지 않는다(§4-7-1⑦)
   expiresAtEstimated boolean      -- true = 웹훅이 아직 한 번도 덮지 않았다
   createdAt/updatedAt
-  UNIQUE (order_id) · UNIQUE (anonymous_key_hash)
+  UNIQUE (order_id) · UNIQUE (user_id)
 
 UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 → 완료 확정"의 실체
-  id                Long
-  anonymousKeyHash  String(64)
+  id                UsageTicketId -- ⚠️ 타입화된 PK — subtitle 에 노출되는 유일한 payment 식별자
+  userId            UserId
   source            enum          -- SUBSCRIPTION(차감 없음) | CREDIT(차감 1)
   status            enum          -- RESERVED | COMMITTED | RELEASED
   createdAt/updatedAt
-  INDEX (anonymous_key_hash, status)
+  INDEX (user_id, status)
 ```
 
 - [BaseTimeEntity](../../src/main/java/kang20/ytcreator/shared/domain/BaseTimeEntity.java) **전부 상속**한다.
   `PaymentOrder.createdAt` 이 곧 지급 시각이라 별도 컬럼을 만들지 않는다(auth-design §3 과 같은 판단).
 - **surrogate PK 를 쓴다.** `orderId` 를 PK 로 삼으면 다른 테이블이 FK 로 `orderId` 를 들고 다니게 되어
   **U14(비노출) 표면이 넓어진다.** 식별자와 PK 를 분리한다.
-- ⚠️ **`Subscription.anonymousKeyHash` 도 UNIQUE 다.** 플랜 전환 시 중복 구독 사례가 보고돼 있는데
+- **타입화는 노출되는 식별자에만 한다**([architecture.md](../rule/architecture.md) 규칙) —
+  `UsageTicket.id` 만 `UsageTicketId`(payment 모듈 루트 노출, subtitle 이 `commit`/`release` 에 쓴다)이고,
+  나머지 세 PK 는 밖으로 나가지 않으므로 원시 `Long` 을 유지한다. **전 PK 일괄 타입화는 과한 추상화다.**
+- ⚠️ **`Subscription.userId` 도 UNIQUE 다.** 플랜 전환 시 중복 구독 사례가 보고돼 있는데
   (payment.md §8), **우리는 플랜이 하나뿐**이라 두 번째 활성 구독은 정상 상태가 아니다.
   두 번째가 오면 DB 가 거부하고 `PAY_003` 으로 떨어진다 — **조용히 두 개를 갖는 것보다 낫다.**
 - ⚠️ **`expiresAtEstimated` 가 없으면 STALE 판정이 거짓말한다.** 추정값(+31일)과 웹훅이 준 정본을
@@ -216,8 +246,12 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 | `backend/deploy/sql/payment-v1.sql` | `payment_orders` · `credit_balances` · `subscriptions` · `usage_tickets` + 인덱스 | **앱 배포보다 먼저** |
 
 - `event_publication` 은 **auth 배포에서 이미 적용됐다**(auth-design §3-1). 다시 만들지 않는다.
-- ⚠️ **`CHAR` 를 쓰지 않는다.** `anonymous_key_hash` 는 길이가 64 로 고정이지만 JPA `String` 매핑의
-  기대 타입은 `VARCHAR` 이고, `CHAR` 로 쓰면 `validate` 가 거부한다 — **auth 구현 라운드 3 실측**.
+- **`user_id`·`usage_tickets.id` 는 전부 `BIGINT`** — 타입 ID 는 자바 쪽 표현일 뿐 DDL 은 원시 타입이다.
+  `users` 테이블은 auth-v1 로 이미 존재하므로 **참조 대상의 선행 배포 조건은 이미 충족**돼 있다.
+- **물리 `FOREIGN KEY` 를 걸지 않는다** — [architecture.md](../rule/architecture.md) "타입화된 기본키" 절의
+  기본 정책. `@ManyToOne` 이 없어 Hibernate 가 FK 를 만들지도 검증하지도 않고(`validate` 는 FK 부재를
+  못 잡는다), 무결성은 UNIQUE 제약 + "지급 전 `register` 보장"(§5-2)이 담당한다.
+  참조 관계는 DDL 주석(`-- users.id`)으로만 표기한다 — youngZZ 와 같은 기조.
 - ⚠️ 테이블명은 **소문자**로 쓴다. 대문자로 만들면 대소문자를 구분하는 리눅스 MySQL 에서 깨지고
   로컬(Windows/H2)에서는 안 드러난다 — auth 구현 라운드 1 실측.
 - ⚠️ **`balance` 에 `CHECK (balance >= 0)` 을 걸지 않는다.** 걸면 잔량 부족이 예외로 튀어
@@ -229,14 +263,17 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 
 | 위치 | 산출물 | 공개 여부 |
 |---|---|---|
-| `payment/package-info.java` | `@ApplicationModule(displayName="결제·이용권", allowedDependencies={"shared"})` | — |
-| `payment/PaymentService.java` | 모듈 공개 API — 지급·조회·소모·재확인 | **public (모듈 밖 유일 진입)** |
-| `payment/PaymentController.java` | `products` · `grant` · `entitlement` · `recheck` | public |
+| `payment/package-info.java` | `@ApplicationModule(displayName="결제·이용권", allowedDependencies={"shared", "auth"})` — auth 의존의 실체는 `UserId` 참조 + 컨트롤러의 `register` 호출(§2-1 쟁점 1) | — |
+| `payment/PaymentService.java` | 모듈 공개 API — 지급·조회·소모·재확인. **사용자 단위 메서드는 전부 `UserId` 를 받는다** | **public (모듈 밖 유일 진입)** |
+| `payment/UsageTicketId.java` | **타입화된 티켓 PK** — `final class extends LongTypeIdentifier`. subtitle 이 쓸 유일한 payment 식별자 | **public (모듈 루트)** |
+| `payment/UsageTicketIdJavaType.java` | Hibernate 매핑 어댑터 | public |
+| `payment/PaymentController.java` | `products` · `grant` · `entitlement` · `recheck`. **`AuthService.register` 로 익명키→`UserId` 해석(모듈 내 유일 지점)** | public |
 | `payment/PaymentWebhookController.java` | 웹훅 수신 (게이트 밖 — §2-1 쟁점 3) | public |
 | `payment/dto/` | `ProductCatalog` · `EntitlementView` · `GrantResult` · `UsageTicketView` · 요청 record | public |
 | `payment/internal/PaymentOrder.java` 외 3 | 엔티티 | 모듈 밖 참조 불가 |
 | `payment/internal/*Repository.java` | 리포지토리 4개 | 모듈 밖 참조 불가 |
 | `payment/internal/GrantWriter.java` | **`@Transactional(REQUIRES_NEW)`** 지급 쓰기. **별도 빈이어야 하는 이유는 §6-5** | 모듈 밖 참조 불가 |
+| `payment/internal/SubscriptionApplyWriter.java` | **`@Transactional`** 구독 반영 쓰기 — 웹훅 `apply`(§5-4) · recheck `applyFromClient`(§5-5). **별도 빈인 이유는 `GrantWriter` 와 같다** — `PaymentService` 안에서 자기 호출하면 프록시를 우회해 트랜잭션이 안 걸린다 | 모듈 밖 참조 불가 |
 | `payment/internal/TossOrderClient.java` | 토스 `get-order-status` 호출 (mTLS) | 모듈 밖 참조 불가 |
 | `payment/internal/TossOrderStatus.java` | 토스 응답 8종 + `resultType` 봉투 → 우리 판정 매핑 | 모듈 밖 참조 불가 |
 | `payment/internal/WebhookAuthenticator.java` | Basic Auth 검증 (U11) | 모듈 밖 참조 불가 |
@@ -244,28 +281,36 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 | `payment/internal/ProductCatalogProperties.java` | `sku` 설정 바인딩 (`@ConfigurationProperties`) | 모듈 밖 참조 불가 |
 | `bootstrap/package-info.java` | `@ApplicationModule(displayName="진입", allowedDependencies={"shared","auth","payment"})` | — |
 | `bootstrap/BootstrapController.java` | `POST /api/v1/bootstrap` | public |
-| `bootstrap/dto/BootstrapResponse.java` | `record(newUser, registeredAt, entitlement)` | public |
-| `shared/security/AnonymousKeyHasher.java` | **이동** — `auth/internal` 에서 승격(§2-1 쟁점 1·§7) | public |
+| `bootstrap/dto/BootstrapResponse.java` | `record(newUser, registeredAt, entitlement)` — ⚠️ **`userId` 를 싣지 않는다**(§2-2) | public |
+| `auth/UserId.java` | **신규** — `final class extends LongTypeIdentifier`. auth 모듈 루트 = 공개(§2-1 쟁점 1) | public |
+| `auth/UserIdJavaType.java` | **신규** — Hibernate 매핑 어댑터. payment 엔티티가 쓴다 | public |
+| `auth/dto/Registration.java` | **변경** — `record(newUser, registeredAt, userId)` (auth-design **v3**, §7) | 기존 public |
+| `shared/domain/ValueObject.java` 외 2 | **신규** — `LongTypeIdentifier`·`LongTypeIdentifierJavaType`. youngZZ 에서 이식(§7) | public (OPEN) |
 | `config/SecurityConfig.java` | **변경** — 공개 경로에 상품·웹훅 추가(§7) | 기존 |
 | `shared/exception/ErrorCode.java` | **변경** — `PAY` 섹션 7건(§9) | 기존 |
 
 **시그니처 수준**
 
 ```
-PaymentService                                     -- payment 밖에서 부를 수 있는 전부
+PaymentService                                     -- payment 밖에서 부를 수 있는 전부. 익명키를 받지 않는다
   ProductCatalog products()                        -- U1. 설정에서 읽는다. DB 를 보지 않는다
-  GrantResult    grant(String anonKey, String orderId)   -- U2·U3·U4. ⚠️ @Transactional 없음(§6-2)
-  EntitlementView entitlementOf(String anonKey)    -- U5. 읽기 전용. 토스를 부르지 않는다
-  EntitlementView recheck(String anonKey, SubscriptionSnapshot fromClient)  -- §4-7-1⑥
-  UsageTicketView reserve(String anonKey)          -- U6·U7. 없으면 BusinessException(PAY_001)
-  void            commit(Long ticketId)            -- 작업 성공
-  void            release(Long ticketId)           -- U8. 작업 실패 → 되돌린다
-  void            handleWebhook(String authHeader, WebhookEvent event)  -- U9·U10·U11
+  GrantResult    grant(UserId userId, String orderId)    -- U2·U3·U4. ⚠️ @Transactional 없음(§6-2)
+  EntitlementView entitlementOf(UserId userId)     -- U5. 읽기 전용. 토스를 부르지 않는다
+  EntitlementView recheck(UserId userId, SubscriptionSnapshot fromClient)  -- §4-7-1⑥
+  UsageTicketView reserve(UserId userId)           -- U6·U7. 없으면 BusinessException(PAY_001)
+  void            commit(UsageTicketId ticketId)   -- 작업 성공
+  void            release(UsageTicketId ticketId)  -- U8. 작업 실패 → 되돌린다
+  void            handleWebhook(String authHeader, WebhookEvent event)  -- U9·U10·U11 (익명키 무관)
+
+PaymentController                                  -- 익명키가 payment 에 들어오는 유일한 지점
+  userId = authService.register(anonKey).userId()  -- 멱등·자동 등록. ⚠️ 트랜잭션 밖(auth-design §6-4)
+  → PaymentService.{grant|entitlementOf|recheck}(userId, ...)
 
 GrantWriter                                        -- internal. PaymentService 와 반드시 다른 빈(§6-5)
-  PaymentOrder grant(String hash, String orderId, String sku, ProductType type, LocalDateTime now)
+  PaymentOrder grant(UserId userId, String orderId, String sku, ProductType type, LocalDateTime now)
                                                    -- @Transactional(REQUIRES_NEW)
                                                    -- 주문 원장 + (횟수권 +1 | 기간권 생성) 을 한 트랜잭션에
+                                                   -- ⚠️ AuthService 를 주입받지 않는다 — §6-5·§10 감시
 
 TossOrderClient                                    -- internal. ✅-11 격리 지점(§2-1·§12-2)
   TossOrderStatus statusOf(String orderId)         -- mTLS. 트랜잭션 밖에서만 호출된다
@@ -301,13 +346,15 @@ products():                                     -- 트랜잭션 없음. DB 를 �
 ### 5-2. `grant` — U2·U3·U4 구현 (**이 도메인의 심장**)
 
 ```
-grant(anonKey, orderId):                        -- ⚠️ @Transactional 을 붙이지 않는다(§6-2)
-  hash = hasher.hash(anonKey)
+[컨트롤러] userId = authService.register(anonKey).userId()   -- 멱등·자동 등록. 트랜잭션 밖
+           → grant(userId, orderId)
+
+grant(userId, orderId):                         -- ⚠️ @Transactional 을 붙이지 않는다(§6-2)
 
   1. 기존 = orderRepository.findByOrderId(orderId)          -- 자체 TX (읽기)
      기존 있음:
-        기존.hash == hash → return 멱등 200 (현재 entitlement)   -- U3. 재요청은 에러가 아니다
-        기존.hash != hash → throw PAY_005                        -- U4 선점
+        기존.userId == userId → return 멱등 200 (현재 entitlement)  -- U3. 재요청은 에러가 아니다
+        기존.userId != userId → throw PAY_005                       -- U4 선점
 
   2. 토스 = tossOrderClient.statusOf(orderId)               -- ⚠️ 트랜잭션 밖(§2-1 쟁점 2)
      resultType != SUCCESS               → PAY_006 (502)
@@ -321,16 +368,17 @@ grant(anonKey, orderId):                        -- ⚠️ @Transactional 을 붙
      sku 가 우리 카탈로그에 없다 → PAY_004                    -- 남의 상품이다
 
   4. try:
-        grantWriter.grant(hash, orderId, sku, type, now)    -- REQUIRES_NEW. 여기서만 쓴다
+        grantWriter.grant(userId, orderId, sku, type, now)  -- REQUIRES_NEW. 여기서만 쓴다
      catch DuplicateKeyException:                            -- 경쟁에서 졌다(§6-3)
         경쟁자 = findByOrderId(orderId)                       -- 자체 TX → 새 스냅샷
-        경쟁자.hash == hash → 멱등 200
-        경쟁자.hash != hash → PAY_005
+        경쟁자.userId == userId → 멱등 200
+        경쟁자.userId != userId → PAY_005
 
-  5. return GrantResult(granted=true, type, entitlementOf(hash))   -- ⚠️ 커밋 이후에 만든다(§4-5-1ⓒ)
+  5. return GrantResult(granted=true, type, entitlementOf(userId))  -- ⚠️ 커밋 이후에 만든다(§4-5-1ⓒ)
 ```
 
-- **U14 준수**: `PAY_00x` 어느 것도 `orderId` 를 본문에 싣지 않는다. 로그도 마스킹한다(§9).
+- **U14 준수**: `PAY_00x` 어느 것도 `orderId` 를 본문에 싣지 않는다. **애플리케이션 로그·예외 메시지도**
+  마스킹한다(§9). ⚠️ 단 **프레임워크 로그의 잔존 노출 1건은 §6-6 에서 의도적으로 수용**한다.
 - **이 멱등 구조가 곧 U12(미결 주문 복원 지원)의 구현이다** — 복원은 별도 엔드포인트가 아니라
   `grant` 재사용이고(payment.md §6-3), 그게 가능한 근거가 재요청 200 이다.
 - **2 를 1 보다 뒤에 두는 이유**: 이미 지급된 주문이면 토스를 부를 필요가 없다.
@@ -342,10 +390,9 @@ grant(anonKey, orderId):                        -- ⚠️ @Transactional 을 붙
 ### 5-3. `entitlementOf` — U5 구현
 
 ```
-entitlementOf(anonKey):                         -- 읽기 전용. ⚠️ 토스를 부르지 않는다
-  hash = hasher.hash(anonKey)
-  credits = creditRepository.findByHash(hash).map(balance).orElse(0)
-  sub     = subscriptionRepository.findByHash(hash)     -- 없으면 status=NONE
+entitlementOf(userId):                          -- 읽기 전용. ⚠️ 토스도 auth 도 부르지 않는다
+  credits = creditRepository.findByUserId(userId).map(balance).orElse(0)
+  sub     = subscriptionRepository.findByUserId(userId)   -- 없으면 status=NONE
 
   stale       = gate.stale(sub, clock.now())
   accessible  = gate.accessible(sub, clock.now()) || credits > 0
@@ -354,6 +401,8 @@ entitlementOf(anonKey):                         -- 읽기 전용. ⚠️ 토스�
 
 - **토스를 부르지 않는 것이 계약이다.** 부트스트랩은 부분 실패를 허용하지 않으므로(§2-2),
   여기서 외부를 부르면 **토스 장애가 진입 자체를 막는다**(payment.md §5-3).
+- **auth 도 부르지 않는다** — `UserId` 해석은 호출자 몫이다(부트스트랩은 `register` 결과를,
+  컨트롤러는 자기 해석 결과를 넘긴다). **auth 장애의 전파 경로가 해석 지점 하나로 고정**된다.
 - **`accessible` 은 서버가 계산해 내려준다.** 프론트가 정책을 대신 판단하면 게이트와 갈린다.
 - 이용권이 없어도 **404 가 아니라 200** — "없음"은 정상 상태다.
 
@@ -387,9 +436,8 @@ handleWebhook(authHeader, event):
 ### 5-5. `recheck` — §4-7-1⑥ 구현
 
 ```
-recheck(anonKey, fromClient):
-  hash = hasher.hash(anonKey)
-  sub  = subscriptionRepository.findByHash(hash)
+recheck(userId, fromClient):
+  sub = subscriptionRepository.findByUserId(userId)
   없음 → throw PAY_004                          -- 구독 이력이 없는데 재확인할 게 없다
   gate.stale(sub, now) 아님 → 현재 entitlement 반환(200)   -- 멱등. 이미 해소됐다
 
@@ -397,7 +445,7 @@ recheck(anonKey, fromClient):
      status/expiresAt/autoRenew ← fromClient
      expiresAtEstimated = false
      ⚠️ lastWebhookOccurredAt 은 건드리지 않는다             -- §4-7-1⑦
-  return entitlementOf(anonKey)
+  return entitlementOf(userId)
 ```
 
 - 🔴 **`fromClient` 는 클라가 보낸 값이다**(§4-7-1⑧ⓐ). **결제 없이 `{status:"ACTIVE"}` 만 보내도
@@ -409,23 +457,22 @@ recheck(anonKey, fromClient):
 ### 5-6. `reserve` / `commit` / `release` — U6·U7·U8 구현
 
 ```
-reserve(anonKey):                               -- @Transactional
-  hash = hasher.hash(anonKey)
-  sub  = findByHash(hash)
+reserve(userId):                                -- @Transactional
+  sub = findByUserId(userId)
 
   gate.stale(sub, now)      → throw PAY_007 (403)        -- 상태 미확인. recheck 유도
   gate.accessible(sub, now) → 티켓(SUBSCRIPTION) 저장 후 반환   -- ✅-4ⓒ 기간권 우선. 차감 없음
 
-  차감 = creditRepository.decrementIfPositive(hash)      -- 조건부 UPDATE. 0행이면 부족(§6-4)
+  차감 = creditRepository.decrementIfPositive(userId)    -- 조건부 UPDATE. 0행이면 부족(§6-4)
   차감 == 0 → throw PAY_001 (403)                        -- 결제 유도
   티켓(CREDIT) 저장 후 반환
 
-commit(ticketId):                               -- @Transactional
+commit(ticketId):                               -- @Transactional. ticketId 는 UsageTicketId
   RESERVED 아니면 무시(멱등)  →  status = COMMITTED
 
 release(ticketId):                              -- @Transactional. U8
   RESERVED 아니면 무시(멱등)
-  source == CREDIT → creditRepository.increment(hash)    -- 되돌린다
+  source == CREDIT → creditRepository.increment(userId)  -- 되돌린다
   status = RELEASED
 ```
 
@@ -450,7 +497,7 @@ release(ticketId):                              -- @Transactional. U8
 | # | 시나리오 | 발생 경로 | 요구 결과 |
 |---|---|---|---|
 | **C1** | 같은 `orderId` 로 **동시 2회** 지급 | 🔴 **정상 경로다** — 콜백과 복원(§6-3)이 겹친다. 네트워크 재시도도 |
-| **C2** | 같은 익명키로 **다른 두 주문**을 동시 지급 | 단건 2건 연속 구매 · 복원이 여러 건을 병렬 처리 | 잔량 +2. **행 생성 경쟁이 있다** |
+| **C2** | 같은 사용자(`UserId`)가 **다른 두 주문**을 동시 지급 | 단건 2건 연속 구매 · 복원이 여러 건을 병렬 처리 | 잔량 +2. **행 생성 경쟁이 있다** |
 | **C3** | 잔량 1에 **동시 2건** 작업 생성 | 🔴 **멱등이 못 덮는 축**(payment.md §4-5-1) — 더블탭·병렬 요청 | 한쪽만 성공, 잔량 0. **음수 금지** |
 | **C4** | 같은 티켓에 `release` **2회** | 작업 도메인의 재시도 | `+1` 은 **한 번만** |
 | **C5** | 웹훅 **중복·순서 역전** | 이벤트 ID 가 없다(payment.md §4-7) | 과거 이벤트는 무시 |
@@ -511,11 +558,11 @@ auth 에는 없던 문제다. 토스 왕복이 트랜잭션 안에 들어가면 
 | 읽고 → 빼고 → 저장 | ❌ | 함정 ⑤ — 잔량 1로 작업 2건 |
 | `@Version` 낙관적 락 | △ | 동작하나 **예외 번역 + 재시도 루프**가 붙는다. 실패가 "충돌"인지 "부족"인지 구분도 안 된다 |
 | `SELECT ... FOR UPDATE` | △ | 동작하나 **행 락을 트랜잭션 끝까지 잡는다.** 얻는 것에 비해 비싸다 |
-| **조건부 UPDATE 한 방** | ✅ **채택** | `UPDATE ... SET balance = balance - 1 WHERE hash = ? AND balance > 0` → **영향 행 수가 곧 판정이다** |
+| **조건부 UPDATE 한 방** | ✅ **채택** | `UPDATE ... SET balance = balance - 1 WHERE user_id = ? AND balance > 0` → **영향 행 수가 곧 판정이다** |
 
 ```
-decrementIfPositive(hash): int              -- @Modifying JPQL 조건부 UPDATE (구현은 코드 몫)
-  balance = balance - 1  WHERE hash = ? AND balance > 0
+decrementIfPositive(userId): int            -- @Modifying JPQL 조건부 UPDATE (구현은 코드 몫)
+  balance = balance - 1  WHERE userId = ? AND balance > 0    -- 타입 ID 파라미터 그대로 (JPQL 은 자동 언랩)
   반환: 영향 행 수. 1 = 성공, 0 = 부족
 ```
 
@@ -533,13 +580,13 @@ transition(id, to): int                     -- 같은 방식의 조건부 UPDATE
   반환: 0 = 이미 처리됨 → 잔량을 건드리지 않고 반환
 ```
 
-**C2(잔량 행 생성 경쟁)** — 같은 익명키의 첫 두 주문이 동시에 오면 `CreditBalance` insert 가 겹친다.
+**C2(잔량 행 생성 경쟁)** — 같은 사용자의 첫 두 주문이 동시에 오면 `CreditBalance` insert 가 겹친다.
 
 ```
-증가(hash):
-  1. incrementIfExists(hash)  -- UPDATE ... SET balance = balance + 1 WHERE hash = ?
+증가(userId):
+  1. incrementIfExists(userId)  -- UPDATE ... SET balance = balance + 1 WHERE userId = ?
      1행 → 끝
-  2. 0행 → insert(hash, 1)
+  2. 0행 → insert(userId, 1)
      DuplicateKeyException → 경쟁자가 방금 만들었다 → 1 을 다시 시도 (반드시 1행)
 ```
 
@@ -588,6 +635,9 @@ auth 는 단일 행 삽입이라 감쌀 원자성이 없었지만, **payment 는
 - **④ 가 반드시 행을 찾는 근거**: InnoDB 는 중복 키 삽입 시 상대 트랜잭션이 끝날 때까지 대기시킨다.
   ③ 이 위반을 받았다는 것은 **경쟁자가 이미 커밋했다**는 뜻이므로, 새 트랜잭션인 ④ 는 그 행을 반드시 본다.
 - ⚠️ **이 근거는 `DuplicateKeyException` 일 때만 참이다.** §6-3 에서 예외를 좁힌 이유가 이것이다.
+- ⚠️ **`GrantWriter` 는 `AuthService` 를 주입받지 않는다.** `register` 를 REQUIRES_NEW 안에서 부르면
+  auth-design §6-4 의 전제(트랜잭션 밖 호출)가 깨져 **함정 ④가 auth 쪽에서 되살아난다.**
+  `UserId` 해석은 컨트롤러에서 끝났고(§2-1 쟁점 1), 여기는 이미 해석된 값만 받는다 — §10 이 감시한다.
 - **테스트 프로파일 호환성**: `REQUIRES_NEW`·UNIQUE 위반 → `DuplicateKeyException` 변환·JPQL 조건부
   UPDATE 는 전부 Spring/JPA 표준이라 **H2(MODE=MYSQL)와 MySQL 이 동일하게 동작한다.**
   네이티브 SQL 도 격리 수준 가정도 쓰지 않는다.
@@ -603,6 +653,11 @@ auth 는 단일 행 삽입이라 감쌀 원자성이 없었지만, **payment 는
   이벤트 ID 가 없는 이상 완전한 판별은 불가능하다(payment.md §4-7) — **수용한다.**
 - **`UsageTicket` 이 무한히 쌓인다.** 정리 배치를 만들지 않는다. MVP 트래픽에서 문제가 되지 않고,
   **소모 이력은 U8 분쟁 대응에 쓸모가 있다.** 보관 정책은 운영 데이터가 쌓인 뒤 정한다.
+- **C1 경쟁 패자의 UNIQUE 위반 시 Hibernate WARN 에 `orderId` 원문이 실린다** — auth-design §3-2 가
+  실측한 것과 같은 프레임워크 로그라 애플리케이션 마스킹(§9)이 닿지 않는다. **수용한다**:
+  그 시점의 주문은 **이미 지급·귀속이 끝난 뒤**라(승자가 커밋했으므로 위반이 났다) 로그의 `orderId` 로
+  할 수 있는 것이 재요청(멱등 200) 또는 `PAY_005` 뿐이다 — **U14 가 막으려는 선점 가로채기 가치가 없다.**
+  auth 처럼 해시로 바꾸면 토스 API 호출·웹훅 대조가 전부 원문 요구라 성립하지 않는다.
 
 ---
 
@@ -612,8 +667,12 @@ auth 는 단일 행 삽입이라 감쌀 원자성이 없었지만, **payment 는
 
 | 파일 | 변경 | 영향 |
 |---|---|---|
-| [AnonymousKeyHasher.java](../../src/main/java/kang20/ytcreator/auth/internal/AnonymousKeyHasher.java) | **`shared/security/` 로 이동** (§2-1 쟁점 1) | 🔴 **auth 의 import 가 바뀐다.** 로직은 한 글자도 바뀌지 않으므로 `AnonymousKeyHasherTest` 도 패키지만 이동 |
-| [AuthService.java](../../src/main/java/kang20/ytcreator/auth/AuthService.java) | import 경로만 변경 | 동작 무변경. **auth-design §4 표의 위치 표기도 함께 고친다** |
+| [AnonymousKeyHasher.java](../../src/main/java/kang20/ytcreator/auth/internal/AnonymousKeyHasher.java) | **변경 없음이 정책** (§2-1 쟁점 1) | 초안의 `shared/security` 승격이 **취소됐다.** 해싱은 auth 의 권위로 남고, payment 는 해시를 아예 다루지 않는다. `AnonymousKeyHasherTest` 도 제자리 |
+| [AuthService.java](../../src/main/java/kang20/ytcreator/auth/AuthService.java) | `register` 의 세 반환 지점(기존·신규·경쟁 패자)에 **`UserId` 를 실어 반환** | 추가 쿼리 없음 — 기존·경쟁 패자는 이미 조회한 행에서, 신규는 `saveAndFlush` 라 채번이 보장된 `id` 에서 꺼낸다. **auth-design v3 의 실체** |
+| [Registration.java](../../src/main/java/kang20/ytcreator/auth/dto/Registration.java) | `record(newUser, registeredAt)` → **`record(newUser, registeredAt, userId)`** | 🔴 javadoc 의 *"PK 를 담지 않는다"* 결정이 **정면으로 번복된다** — 근거를 *"원시 Long 대신 타입화한 `UserId` 로 담는다"* 로 교체(auth-design v3 §4) |
+| [User.java](../../src/main/java/kang20/ytcreator/auth/internal/User.java) | **`getId()` 게터 추가** (현재 없다) | `@Id` 는 **원시 `Long` 을 유지**한다 — youngZZ 처럼 `@JavaType` 로 타입화할 수도 있지만(가능함이 검증됨) **기구현·기배포 코드의 churn 대비 이득이 없다.** 경계(Registration)에서만 `UserId` 로 래핑. `users` DDL 무변경 |
+| [package-info.java (auth)](../../src/main/java/kang20/ytcreator/auth/package-info.java) | javadoc 갱신 — 공개 타입에 `UserId`·`UserIdJavaType` 추가 | *"공개 타입은 AuthService 와 Registration 뿐"* 서술이 낡는다 |
+| [AuthServiceTest.java](../../src/test/java/kang20/ytcreator/auth/AuthServiceTest.java) | `Registration` record components 단언 갱신 + **`userId == 저장 행의 id`** 단언 추가 | 🔴 **현재 `containsExactly("newUser","registeredAt")` 단언이 즉시 빨개진다** — 설계 감시자가 정상 작동하는 것이다. 테스트·javadoc·auth-design §4 를 **한 커밋에서** 함께 고친다 |
 | [SecurityConfig.java](../../src/main/java/kang20/ytcreator/config/SecurityConfig.java) | `PUBLIC_PATHS` 에 **`/api/v1/payments/products`** 와 **`/api/v1/webhooks/toss/**`** 추가 | ⚠️ **웹훅을 빠뜨리면 토스 웹훅이 401 로 튕겨 U9 가 통째로 죽는다**(payment.md §10-8ⓐ). 웹훅은 permitAll 이지만 **모듈이 Basic Auth 로 다시 막는다**(§2-1 쟁점 3) |
 | [ErrorCode.java](../../src/main/java/kang20/ytcreator/shared/exception/ErrorCode.java) | `PAY` 섹션 7건 추가 (§9) | 기존 코드 무변경 |
 | [GlobalExceptionHandler.java](../../src/main/java/kang20/ytcreator/shared/exception/GlobalExceptionHandler.java) | **변경 없음이 정책** | ✅ **502 핸들러 신설이 불필요하다.** `handleBusiness` 가 `code.getStatus()` 를 그대로 쓰므로 `ErrorCode` 에 `BAD_GATEWAY` 를 넣으면 자동 처리된다 — **payment.md §7 의 "신설 필요" 우려는 기우다** |
@@ -623,11 +682,15 @@ auth 는 단일 행 삽입이라 감쌀 원자성이 없었지만, **payment 는
 | [toss-integration.md](../rule/toss-integration.md) | 3건 정정 (payment.md §10-6) | ⓐ 서버용 구독 조회 API 부재 명시 ⓑ *"hash 인증으로 인앱결제도 호출"* → **IAP 는 mTLS + `orderId` 뿐** ⓒ 단건 흐름 추가 |
 | [CLAUDE.md](../../../CLAUDE.md) | *"인앱결제가 익명키만으로 지원된다"* 정정 (payment.md §10-7) | **IAP 는 `x-anon-key` 를 쓰지 않는다** |
 | [auth.md](./auth.md) | **v3 로 올린다** — §4-2 공개 목록에 웹훅·상품 경로, §5-2 부트스트랩 스키마 확대 | 🔴 **v2 확정본이라 조용히 못 고친다** → §12-1 |
-| [auth-design.md](./auth-design.md) | §4 표의 `AnonymousKeyHasher` 위치, §12-1(`bootstrap` 미룸) 해소 표기 | 설계 정본이므로 역반영 필요 |
+| [auth-design.md](./auth-design.md) | **v3 로 올린다** — §4(`Registration` 에 `userId`·`UserId` 신설), §3-2 마지막 불릿(해시 저장 선례 예고) 정정, §2-2(subscription 키 방식 미결) 확정 표기, §6-5(`register` 호출자 목록) 갱신, §13 v3 행 | 설계 정본 역반영. **"id 를 담지 않는다" 결정 번복의 정본 지점** |
 
 - **삭제된 요구가 남긴 코드는 없다.** payment 는 신규 도메인이다.
-- ⚠️ **auth 의 테스트가 깨지는 유일한 지점은 해셔 이동**이다. 이동 커밋에서 `./gradlew test` 를
-  통과시키고 넘어간다 — payment 구현과 섞지 않는다(§11).
+- ⚠️ **auth 코드·테스트 변경(위 6개 행)은 `feat(auth)` 단독 커밋**으로 분리하고, 그 커밋에서
+  `./gradlew test` 그린을 확인하고 넘어간다 — payment 구현과 섞지 않는다(§11).
+- ⚠️ **auth-design §6-5 의 재검토 조항이 발동된다** — *"호출자가 늘면 재검토한다"*.
+  `register` 의 호출자가 `{bootstrap}` → `{bootstrap, payment 컨트롤러}` 로 늘었다.
+  **판단: 문서 + 경계 테스트 유지** — 둘 다 트랜잭션 없는 계층이라 전제가 지켜지고,
+  `PaymentTransactionBoundaryTest`(§10)가 `GrantWriter` 의 auth 미주입까지 감시한다. 런타임 가드는 여전히 과하다.
 
 ---
 
@@ -753,31 +816,37 @@ main 브랜치 docs/api/index.html   ← 프론트가 읽는 유일한 창구
 | 테스트 | 종류 | 핵심 케이스 |
 |---|---|---|
 | `PaymentGrantTest` | `@ApplicationModuleTest` | 최초 지급(단건 +1 / 구독 생성) · **재요청 200 + 잔량 불변**(U3·**U12** — 복원 재전송이 이 경로다) · 남의 주문 `PAY_005`(U4) · 토스 status 8종 → 응답 매핑 전수 · `sku` 가 카탈로그에 없으면 `PAY_004` |
-| `PaymentGrantConcurrencyTest` | **비TX 멀티스레드** | 🔴 **C1** — 같은 `orderId` 동시 N회 → **주문 1행·잔량 정확히 +1**, 예외·500 없음. **`grant` 를 트랜잭션 밖에서 호출해야 실제 경쟁이 재현된다** / **C2** — 같은 익명키·다른 주문 N건 동시 → 잔량 정확히 +N (행 생성 경쟁, §6-4) |
+| `PaymentGrantConcurrencyTest` | **비TX 멀티스레드** | 🔴 **C1** — 같은 `orderId` 동시 N회 → **주문 1행·잔량 정확히 +1**, 예외·500 없음. **`grant` 를 트랜잭션 밖에서 호출해야 실제 경쟁이 재현된다** / **C2** — 같은 `UserId`·다른 주문 N건 동시 → 잔량 정확히 +N (행 생성 경쟁, §6-4) |
 | `CreditConsumeConcurrencyTest` | **비TX 멀티스레드** | 🔴 **C3** — 잔량 1에 동시 N건 `reserve` → **정확히 1건만 성공, 나머지 `PAY_001`, 잔량 0. 음수 없음** / **C4** — 같은 티켓 동시 `release` N회 → `+1` 정확히 1회 |
-| `PaymentTransactionBoundaryTest` | 단위(리플렉션) | **함정 ③·④ 회귀 방지** — `PaymentService.grant` 에 `@Transactional` 이 **없음**, `GrantWriter.grant` 가 **`REQUIRES_NEW`**, `BootstrapService`(있다면)에 `@Transactional` 없음을 단언. **사람이 무심코 붙이는 순간 실패한다** |
+| `PaymentTransactionBoundaryTest` | 단위(리플렉션) | **함정 ③·④ 회귀 방지** — `PaymentService.grant` 에 `@Transactional` 이 **없음**, `GrantWriter.grant` 가 **`REQUIRES_NEW`**, `BootstrapService`(있다면)에 `@Transactional` 없음 + **`GrantWriter` 가 `AuthService` 를 주입받지 않음**(§6-5 — REQUIRES_NEW 안의 `register` 호출 차단)을 단언. **사람이 무심코 붙이는 순간 실패한다** |
 | `SubscriptionGateTest` | 단위 | §4-3 개폐표 6종 전수 · **유예 1일 경계값**(`expiresAt`, `+1일`, `+1일 1초`) · STALE 판정(추정값 vs 정본) · 구독 이력 없음 |
 | `PaymentWebhookTest` | `@ApplicationModuleTest` | 등록 검증 이벤트 → 204(U10) · Basic 불일치 → 401 **+ 상태 무변경**(U11) · 모르는 `orderId` → 무시 + 구독 미생성(✅-5) · `occurredAt` 역전 → 무시(C5) · `previous` 불일치 → **WARN 로그 + 반영은 진행** · `REVOKED` → 즉시 회수(**U13**) · `AUTO_RENEW_DISABLED` → **만료일까지 유지** · `RESTARTED` + `autoRenew=false` → **`current` 를 따른다** |
 | `SubscriptionRecheckTest` | `@ApplicationModuleTest` | STALE → recheck → 게이트 재개방 · **`lastWebhookOccurredAt` 이 갱신되지 않음**(§4-7-1⑦) · **recheck 이후 도착한 과거 웹훅이 정상 반영됨**(위계 검증) · STALE 아닐 때 멱등 200 |
+| `PaymentConsumeTest` | `@ApplicationModuleTest` | reserve/commit/release **정상 흐름**(동시성 아님) — 🔴 **STALE + 잔량 보유 사용자 → `PAY_007`(`PAY_001` 아님 — §5-6 판정 순서)** · 기간권 사용자 → `SUBSCRIPTION` 티켓 + **잔량 불변**(✅-4ⓒ) · 이용권 없음 → `PAY_001` · `commit`/`release` 멱등 · `release`(CREDIT) → `+1` |
 | `TossOrderClientTest` | 단위(MockRestServiceServer) | `resultType` 7종 → 성공/실패 분류 · **비즈니스 오류가 HTTP 200 으로 오는 경우** · `success.sku` 부재 방어 · 타임아웃 → `PAY_006` |
 | `PaymentControllerTest` | `@WebMvcTest` + REST Docs | §8 스니펫 전부. **응답·에러 본문에 `orderId` 가 없음**(U14) |
 | `PaymentWebhookControllerTest` | `@WebMvcTest` + REST Docs | 204 · 401 · **반영 실패해도 204** |
 | `BootstrapControllerTest` | `@WebMvcTest` + REST Docs | 성공 + **게이트 401 두 종류**(auth-design §8 숙제 해소) |
-| `PaymentModuleBoundaryTest` | 구조 | `verify()` 가 못 잡는 불변식: ⓐ `payment.allowedDependencies` 가 `shared` 뿐 — **`auth` 를 적어 넣으면 `verify()` 는 오히려 정상으로 본다**(auth-design §10 선례) ⓑ **수동 DDL ↔ 엔티티 매핑 대조**(§3-1) ⓒ payment 가 `subtitle`·`auth` 를 참조하지 않음 |
-| `ModularityTest` | 구조 (기존) | 순환 없음 · `bootstrap` → `auth`·`payment` 단방향 |
+| `PaymentModuleBoundaryTest` | 구조 | `verify()` 가 못 잡는 불변식: ⓐ `payment.allowedDependencies` 가 **정확히 `{shared, auth}`** — 다른 모듈을 적어 넣으면 `verify()` 는 오히려 정상으로 본다(auth-design §10 선례, **부호가 auth 와 반대**) ⓑ **수동 DDL ↔ 엔티티 매핑 대조**(§3-1) ⓒ payment 가 `subtitle`·**`auth/internal`** 을 참조하지 않음 ⓓ **payment 엔티티에 익명키 원문·해시 컬럼이 없음**(§2-1 쟁점 1 의 감시자) |
+| `LongTypeIdentifierJavaTypeTest` | 단위 (`shared/domain`) | youngZZ 테스트 패턴 이식 — `wrap`(Long/null/동일타입/미지원)·`unwrap`·`fromString` 라운드트립 · **리플렉션 생성자 실패 분기**(예외 던지는 픽스처) · `ImmutableMutabilityPlan` · BIGINT 매핑 |
+| `UserId`·`UsageTicketId` 계약 | 단위 | 값 동등성·`final` 선언·**public `(Long)` 생성자 존재**(리플렉션 계약 — architecture.md 함정 표) · `toString` 형식 |
+| `ModularityTest` | 구조 (기존) | 순환 없음 · `bootstrap` → `auth`·`payment` 단방향 · **`payment` → `auth` 단방향 (역방향 금지)** |
 
 **어떤 테스트가 어떤 라인을 덮는가**
 
 | 산출물 | 덮는 테스트 | 비고 |
 |---|---|---|
-| `payment/PaymentService.java` | `PaymentGrantTest` + 동시성 2본 + `SubscriptionRecheckTest` | **catch 분기는 동시성 테스트로만 도달한다** — 목으로 예외를 흉내 내면 §6-5 트랜잭션 경계가 검증되지 않는다 |
+| `payment/PaymentService.java` | `PaymentGrantTest` + 동시성 2본 + `SubscriptionRecheckTest` + `PaymentConsumeTest` | **catch 분기는 동시성 테스트로만 도달한다** — 목으로 예외를 흉내 내면 §6-5 트랜잭션 경계가 검증되지 않는다 |
+| `payment/internal/SubscriptionApplyWriter.java` | `PaymentWebhookTest` + `SubscriptionRecheckTest` | 웹훅 반영 + 클라 반영. `lastWebhookOccurredAt` 불변 단언이 여기 걸린다 |
 | `payment/internal/GrantWriter.java` | `PaymentGrantTest` + `PaymentGrantConcurrencyTest` | 정상 커밋 + 경쟁 시 롤백 경계 |
 | `payment/internal/TossOrderClient.java` | `TossOrderClientTest` | mTLS 조립은 `enabled=false` 로 우회. **조립 자체는 단위 테스트 대상이 아니다** |
 | `payment/internal/TossOrderStatus.java` | `PaymentGrantTest` + `TossOrderClientTest` | status 8종 × `resultType` 7종 매핑 전수 |
 | `payment/internal/SubscriptionGate.java` | `SubscriptionGateTest` | 경계값 |
 | `payment/internal/WebhookAuthenticator.java` | `PaymentWebhookTest` | 일치/불일치/헤더 없음 |
 | `payment/internal/*Repository.java` | 해당 서비스 테스트 | 인터페이스 + `@Modifying` 쿼리는 **동시성 테스트가 실제로 덮는다** |
-| 엔티티 4개 | `PaymentGrantTest` | 생성자·게터·상태 전이 |
+| 엔티티 4개 | `PaymentGrantTest` + `PaymentConsumeTest`(`UsageTicket`) | 생성자·게터·상태 전이 |
+| `shared/domain/` 타입 ID 부품 3개 | `LongTypeIdentifierJavaTypeTest` | 리플렉션 분기까지 전 라인 — youngZZ 가 100% 커버 선례 |
+| `auth/UserId.java` · `payment/UsageTicketId.java` | 계약 단위 테스트 + 모듈 통합(실 DB 왕복) | ⚠️ **모듈 루트라 `dto/**` 제외에 안 걸린다** — 커버리지 집계 대상. `@JavaType` wrap/unwrap 은 통합 테스트의 flush/clear 후 재조회가 실제로 태운다 |
 | `payment/dto/**` | — | `dto/**` 커버리지 제외([testing.md](../rule/testing.md)) |
 | `bootstrap/**` | `BootstrapControllerTest` + `ModularityTest` | 컨트롤러 1개 + record |
 | `config/SecurityConfig.java` | `PaymentControllerTest`(공개 경로) + `PaymentWebhookControllerTest` | `config/**` 는 커버리지 제외지만 **동작은 반드시 검증한다** — 계약이기 때문 |
@@ -797,22 +866,24 @@ main 브랜치 docs/api/index.html   ← 프론트가 읽는 유일한 창구
 
 ## 11. 구현 단계 (체크리스트)
 
-- [ ] `refactor(auth)`: `AnonymousKeyHasher` → `shared/security` 이동 + auth import·테스트 패키지 정리 (§7).
-      **이 커밋 단독으로 `./gradlew test` 그린을 확인하고 넘어간다**
-- [ ] `chore(db)`: `backend/deploy/sql/payment-v1.sql` — 테이블 4개 + 인덱스 (§3-1)
-- [ ] `feat(payment)`: 모듈 골격 + 엔티티·리포지토리 + `GrantWriter` + `SubscriptionGate` (§4 매핑대로)
+- [ ] `feat(shared)`: `shared/domain` 타입 ID 공통 부품 3개 이식 + `LongTypeIdentifierJavaTypeTest` (§4·architecture.md)
+- [ ] `feat(auth)`: `UserId`·`UserIdJavaType` 신설(모듈 루트) + `Registration` 에 `userId` + `User.getId()`
+      + `AuthServiceTest`·javadoc 갱신 (§7). **이 커밋 단독으로 `./gradlew test` 그린을 확인하고 넘어간다**
+- [ ] `docs(auth)`: auth-design.md **v3** — §7 의 역반영 목록 (구현 커밋과 같은 라운드에서)
+- [ ] `chore(db)`: `backend/deploy/sql/payment-v1.sql` — 테이블 4개 + 인덱스, `user_id BIGINT` + FK 없음 (§3-1)
+- [ ] `feat(payment)`: 모듈 골격 + 엔티티·리포지토리 + `UsageTicketId` + `GrantWriter` + `SubscriptionGate` (§4 매핑대로)
 - [ ] `feat(payment)`: `TossOrderClient` (mTLS, `enabled=false` 게이트) + `TossOrderStatus` 매핑 (§5-2)
 - [ ] `feat(payment)`: `PaymentService` — grant·entitlement·reserve/commit/release (§5-2·5-3·5-6)
-- [ ] `feat(payment)`: 웹훅 수신 + `WebhookAuthenticator` + recheck (§5-4·5-5)
+- [ ] `feat(payment)`: 웹훅 수신 + `WebhookAuthenticator` + `SubscriptionApplyWriter` + recheck (§5-4·5-5)
 - [ ] `feat(payment)`: `PaymentController`·`PaymentWebhookController` + `ErrorCode` PAY 7건 (§9)
+- [x] `docs(auth)`: `auth.md` **v3** — §12-1 표 3건. ❗**`feat(bootstrap)` 보다 먼저**(§12-1) — **2026-08-11 설계 승인과 함께 선반영 완료**
 - [ ] `feat(bootstrap)`: `bootstrap` 모듈 + 컨트롤러 (§2-2)
 - [ ] `feat(payment)`: `SecurityConfig` 공개 경로 2건 추가 (§7)
-- [ ] `test(payment)`: §10 전 항목 — **동시성 3본 포함**
+- [ ] `test(payment)`: §10 전 항목 — **동시성 2본 포함**
 - [ ] `docs(api)`: `payment.adoc`·`bootstrap.adoc` 신설 + `index.adoc` include (§8)
       🔴 **§8-1 의 K1~K20 이 본문에 전부 들어갔는지 표로 대조한다.** 스니펫이 없는 두 절
       (§미결 주문 복원 · §이용 게이트)도 반드시 쓴다 — **빠지면 프론트에게는 없는 계약이다**
-- [ ] `docs(rule)`: `toss-integration.md` 3건 · `CLAUDE.md` 1건 정정 (§7)
-- [ ] `docs(auth)`: `auth.md` **v3** + `auth-design.md` 역반영 (§7·§12-1)
+- [ ] `docs(rule)`: `toss-integration.md` 잔여분(단건 흐름 추가·구독 조회 API 부재 명시) · `CLAUDE.md` 1건 정정 (§7)
 - [ ] `./gradlew test --tests "*ModularityTest"` — 모듈 경계 통과
 - [ ] **변경 파일 라인 커버리지 100% 확인** → `/code-review`
 - [ ] `/docs-sync` — **이번엔 스니펫이 실제로 생긴다**(auth 와 다르다)
@@ -823,19 +894,18 @@ main 브랜치 docs/api/index.html   ← 프론트가 읽는 유일한 창구
 
 > 비즈니스 결정은 [payment.md](./payment.md) §9-1 에서 **17건 전부 확정**됐다. 여기는 **설계 쟁점**만 남긴다.
 
-### 12-1. 🔴 `auth.md` 를 v3 로 올려야 한다 — 이 설계가 확정본을 건드린다
+### 12-1. ✅ `auth.md` v3 — **해소됨 (2026-08-11 사용자 지시로 선반영)**
 
 `bootstrap` 응답에 이용권을 담는 순간 **auth.md §5-2 의 확정 계약이 바뀐다**(payment.md ✅-15ⓐ).
-auth.md 는 **v2 확정본**이라 조용히 고칠 수 없다([versioning.md](../../../.claude/skills/usecase/references/versioning.md)).
+**세 건 모두 반영 완료** — auth.md 는 **v3 확정** 상태다:
 
-| 고칠 곳 | 내용 |
-|---|---|
-| auth.md §4-2 | 공개 목록에 **웹훅 경로 + 상품 조회 경로** 추가 |
-| auth.md §5-2 | 부트스트랩 응답에 `entitlement`(= payment.md §5-3 스키마) 추가 |
-| auth.md 전반 | 도메인 이름 `subscription` → **`payment`** (payment.md §10-8ⓒ — grep 으로 훑을 것) |
+| 고친 곳 | 내용 | 상태 |
+|---|---|---|
+| auth.md §4-2 | 공개 목록에 **웹훅 경로 + 상품 조회 경로** 추가 (각각 "왜 공개인가" 근거 포함) | ✅ |
+| auth.md §5-2 | 응답의 이용권 객체를 **`entitlement`**(payment.md §5-3 정본)로 확대. `userId` 비노출 명시 | ✅ |
+| auth.md 전반 | 도메인 이름 `subscription` → **`payment`** (JSON 의 `"subscription"` 키는 유지 — payment.md §10-8ⓒ 의 줄 단위 구분 준수) | ✅ |
 
-**권고**: `feat(bootstrap)` 커밋 **전에** auth.md v3 를 먼저 올린다. 순서가 뒤바뀌면
-**구현이 확정 문서를 앞지른 상태**가 되고, 그건 이 프로젝트가 금지한 흐름이다.
+`feat(bootstrap)` 보다 먼저 올려야 한다는 순서 요건도 충족됐다 — 구현이 확정 문서를 앞지르지 않는다.
 
 ### 12-2. ✅-11 이 "불가"로 밝혀지면 무엇이 바뀌는가 — 격리 지점을 미리 고정한다
 

@@ -7,6 +7,9 @@
 > 상태: **설계 확정 (2026-08-07)** — `/implement auth` 호출로 승인. §12 는 아래 기본값으로 착수했다:
 >   §12-1 `bootstrap` 미구현(범위 외 유지) · ~~§12-2 컬럼 255 잠정~~ **→ v2 에서 해소(해시 64 고정)** ·
 >   §12-3 이번 구현에 영향 없음(컨트롤러 없음) · §12-4 JPA Auditing 은 범위 밖
+> **v3 (2026-08-11, payment 설계 연동)**: 타입화된 기본키 패턴 채택([architecture.md](../rule/architecture.md))으로
+>   **`UserId` 를 모듈 루트에 노출**하고 `Registration` 에 담는다 — §4 의 "id 미포함" 결정 번복. §13 참조.
+>   ⚠️ 코드 반영은 payment 구현 라운드의 `feat(auth)` 커밋에서 일어난다(payment-design §7·§11).
 
 > ⚠️ **첫 도메인이다.** `kang20.ytcreator` 아래에 도메인 모듈이 하나도 없다(`shared`·`config` 만 존재).
 > 인용할 선례가 없으므로 **이 설계가 이후 모든 도메인의 선례**가 된다.
@@ -115,10 +118,10 @@
 auth.md §4-7 확정 사항의 구조적 형태만 미리 고정한다.
 
 ```
-POST /api/v1/bootstrap
-   └─▶ bootstrap 모듈 (allowedDependencies = { shared, auth, subscription })
-          ├─▶ AuthService.register(anonymousKey)        → newUser, registeredAt
-          └─▶ SubscriptionService.statusOf(anonymousKey) → 구독 상태
+POST /api/v1/bootstrap                              -- (v3 갱신 — 도메인 개명·타입 ID 반영)
+   └─▶ bootstrap 모듈 (allowedDependencies = { shared, auth, payment })
+          ├─▶ AuthService.register(anonymousKey)      → newUser, registeredAt, userId
+          └─▶ PaymentService.entitlementOf(userId)    → 이용권 상태   ← 익명키가 아니라 UserId 를 넘긴다
 ```
 
 - **자기 저장소를 갖지 않는다.** 엔티티·리포지토리가 생기면 그건 집계가 아니라 새 도메인이므로
@@ -127,6 +130,8 @@ POST /api/v1/bootstrap
 - ⚠️ `subscription` 이 사용자를 **익명키로 키를 잡을지, `auth` 의 사용자 식별자를 참조할지**는
   `subscription` 도메인의 설계 결정이다. 어느 쪽이든 순환은 생기지 않는다(auth 가 subscription 을
   참조하지 않으므로). **다만 이 불변식은 깨지면 안 된다** — §10 에 구조 테스트로 고정한다.
+  **(v3 확정)** — 후자로 결정됐다: `payment`(구 subscription)는 **`UserId` 를 참조**한다.
+  예상대로 순환은 없다 — `payment → auth` 단방향(payment-design §2-1 쟁점 4).
 
 ---
 
@@ -175,8 +180,11 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
   형식 검증(U5)은 그대로 필요하다.
 - ⚠️ 되돌리기 비용: **지금은 0 이다(행 0개).** 나중에 바꾸려면 전 행 마이그레이션이 붙는다 —
   §4-7 의 “되돌리기 비용의 비대칭” 논리가 여기에도 적용된다.
-- **다른 도메인 선례**: `subscription` 도 익명키↔주문 매핑을 보관한다(auth.md §9-1 전제).
-  같은 이유로 해시 저장이 맞다 — 이 결정이 그 선례가 된다.
+- ~~**다른 도메인 선례**: `subscription` 도 익명키↔주문 매핑을 보관한다. 같은 이유로 해시 저장이 맞다 —
+  이 결정이 그 선례가 된다.~~ **(v3 에서 정정)** — payment 는 해시를 저장하지 않는다.
+  타입화된 기본키 패턴 채택으로 **해시는 `users` 한 곳에만 존재**하고, 다른 도메인은 `UserId` 를 FK 로
+  갖는다(payment-design §2-1 쟁점 1). **auth 자신의 해시 저장 근거(위 표)는 전부 그대로 유효하다** —
+  이 불릿의 "확산 예고"만 틀렸다.
 
 ### 3-1. 수동 DDL — **필요하다**
 
@@ -222,7 +230,9 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
 |---|---|---|
 | `auth/package-info.java` | `@ApplicationModule(displayName="인증", allowedDependencies={"shared"})` | — |
 | `auth/AuthService.java` | 모듈 공개 API. `Registration register(String anonymousKey)` | **public (모듈 밖 유일 진입)** |
-| `auth/dto/Registration.java` | `record Registration(boolean newUser, LocalDateTime registeredAt)` | public |
+| `auth/UserId.java` **(v3)** | `final class extends LongTypeIdentifier`(`shared/domain`) — **모듈이 노출하는 유일한 식별자.** 엔티티는 internal 에 남는다 | public |
+| `auth/UserIdJavaType.java` **(v3)** | Hibernate 매핑 어댑터 — `payment` 엔티티의 FK 컬럼이 쓴다 | public |
+| `auth/dto/Registration.java` | `record Registration(boolean newUser, LocalDateTime registeredAt, UserId userId)` **(v3 — userId 추가)** | public |
 | `auth/internal/User.java` | 엔티티 | 모듈 밖 참조 불가 |
 | `auth/internal/UserRepository.java` | `findByAnonymousKeyHash` / `save` **(v2)** | 모듈 밖 참조 불가 |
 | `auth/internal/UserWriter.java` | **신규 빈** — `@Transactional(REQUIRES_NEW) User insert(String)`. **별도 빈이어야 하는 이유는 §6-4** | 모듈 밖 참조 불가 |
@@ -253,10 +263,15 @@ AnonymousKeyEntryPoint implements AuthenticationEntryPoint
   void commence(req, res, authException)          -- attribute → AUTH_001 | AUTH_002 → ErrorResponse 401
 ```
 
-- **`AuthService` 가 모듈 루트의 유일한 public 타입**이다. `User`·`UserRepository`·`UserWriter` 는
-  `internal/` 이라 Modulith 가 외부 참조를 차단한다([architecture.md](../rule/architecture.md)).
-- `Registration` 에 **사용자 식별자(id)를 담지 않는다.** `bootstrap` 이 필요로 하지 않고,
-  담는 순간 다른 모듈이 auth 의 PK 를 들고 다니게 된다.
+- **`AuthService`(+v3 의 `UserId`·`UserIdJavaType`)가 모듈 루트의 public 타입**이다.
+  `User`·`UserRepository`·`UserWriter` 는 `internal/` 이라 Modulith 가 외부 참조를 차단한다
+  ([architecture.md](../rule/architecture.md)).
+- ~~`Registration` 에 **사용자 식별자(id)를 담지 않는다.**~~ **(v3 에서 번복)** —
+  타입화된 기본키 패턴 채택으로 **다른 모듈이 auth 의 PK 를 들고 다니는 것이 바로 목표**가 됐다.
+  단 **원시 `Long` 이 아니라 `UserId` 로 타입화해서** 담는다 — 혼용을 컴파일러가 잡는다.
+  첫 소비자는 `payment`(소유권 FK — payment-design §2-1 쟁점 1)와 `bootstrap`(entitlement 조회 키)이다.
+  `User` 엔티티의 `@Id` 는 **원시 `Long` 을 유지**하고 경계(Registration)에서만 래핑한다 —
+  기구현·기배포 코드라 내부 표현 변경은 이득 없이 churn 이다.
 - 게이트 부품이 `auth` 가 아니라 `shared/security` 인 이유는 §2-1 쟁점 3.
 
 ---
@@ -269,11 +284,14 @@ AnonymousKeyEntryPoint implements AuthenticationEntryPoint
 register(anonymousKey):                      -- ⚠️ 트랜잭션 없음 (의도적 — §6-4)
   0. hash = hasher.hash(anonymousKey)                                 -- (v2) 이후로는 원문을 쓰지 않는다(§3-2)
   1. findByAnonymousKeyHash(hash)                                     -- 자체 트랜잭션(읽기)
-       존재 → return Registration(newUser=false, 기존.createdAt)      -- 멱등(U2)
+       존재 → return Registration(newUser=false, 기존.createdAt, 기존.id)   -- 멱등(U2). (v3) userId 동반
   2. 없음 → userWriter.insert(hash)                                   -- 별도 쓰기 트랜잭션
-       성공          → return Registration(newUser=true, 신규.createdAt)
+       성공          → return Registration(newUser=true, 신규.createdAt, 신규.id)
        UNIQUE 위반   → §6 경쟁 처리로 위임 (예외를 밖으로 흘리지 않는다)
 ```
+
+> **(v3)** 세 반환 지점 모두 `UserId` 를 싣는다 — 추가 쿼리 없음(기존·패자는 조회한 행에서,
+> 신규는 `saveAndFlush` 채번에서). §6-4 의사코드도 동일하게 읽는다.
 
 - **형식 검증은 여기서 하지 않는다.** 요청이 여기 도달했다는 것은 이미 필터·게이트를 통과했다는
   뜻이다(U5 는 `shared/security` 소관, §4). 서비스가 다시 검사하면 책임이 두 곳으로 갈린다.
@@ -453,6 +471,9 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
   (`TransactionSynchronizationManager` 로 활성 트랜잭션 감지 후 실패)를 둘 수도 있으나,
   방어 코드가 늘고 그 라인을 덮을 테스트가 또 필요하다. **MVP 에서는 문서 + 리뷰로 지킨다** —
   호출자가 `bootstrap` 하나뿐이라 감시 비용이 낮다. 호출자가 늘면 재검토한다.
+  **(v3 재검토 — 호출자 2개가 됐다)**: `{bootstrap, payment 컨트롤러}`. 둘 다 트랜잭션 없는 계층이라
+  전제가 유지되고, `PaymentTransactionBoundaryTest` 가 **`GrantWriter`(REQUIRES_NEW)의 `AuthService`
+  미주입**까지 감시한다(payment-design §6-5·§10). **결론: 런타임 가드는 여전히 과하다 — 유지.**
 
 ---
 
@@ -523,7 +544,7 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 
 | 테스트 | 종류 | 핵심 케이스 |
 |---|---|---|
-| `AuthServiceTest` | `@ApplicationModuleTest` | 최초 등록 `newUser=true` / 재호출 `newUser=false` + 사용자 1명 유지(멱등, U2) / `registeredAt` == `createdAt` |
+| `AuthServiceTest` | `@ApplicationModuleTest` | 최초 등록 `newUser=true` / 재호출 `newUser=false` + 사용자 1명 유지(멱등, U2) / `registeredAt` == `createdAt` / **(v3) `userId` == 저장 행의 `id`** · record components 단언 3필드로 갱신 |
 | `AuthConcurrencyTest` | 비TX 멀티스레드 | **C1** — 같은 익명키 동시 N회 등록 → 사용자 정확히 1명, `newUser=true` 는 정확히 1회, **예외·500 없음**(§6-4). `register` 를 **트랜잭션 밖에서** 호출해야 실제 경쟁이 재현된다 |
 | `AuthTransactionBoundaryTest` | 단위(리플렉션) | **함정 ④ 회귀 방지** — `AuthService.register` 에 `@Transactional` 이 **붙어 있지 않음**을, `UserWriter.insert` 가 **`REQUIRES_NEW`** 임을 단언한다. 사람이 무심코 붙이는 순간 실패한다 |
 | `AuthConcurrencyTest` 의 **로그 단언 (v2)** | 비TX 멀티스레드 | **U6 회귀 방지(blockers B4)** — 경쟁을 실제로 일으킨 뒤 **캡처한 로그에 익명키 원문이 없음**을 단언한다. §3-2 해시 저장이 풀리면 이 테스트가 먼저 빨개진다 |
@@ -659,6 +680,7 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 | 버전 | 대응 유스케이스 | 날짜 | 설계 변경 | 마이그레이션 |
 |---|---|---|---|---|
 | v2 | auth.md **v2** | 08-07 | §5-2 공개 경로 `~~/actuator/health~~ → /actuator/**` · §5-2/§7 `.cors()` 추가 · **§3-2 신설 — 익명키를 SHA-256 해시로 저장** · §4 `+AnonymousKeyHasher` · §12-2 해소 · §12-4 신설 | **없음 — 아직 배포 전이고 `users` 행이 0개다.** `deploy/sql/auth-v1.sql` 을 컬럼 `anonymous_key_hash VARCHAR(64)` 로 **다시 쓰면 끝난다**(ALTER 아님) |
+| **v3** | auth.md v2 (HTTP 계약 무변경 — auth.md v3 는 bootstrap 스키마 건이며 별도) | 08-11 | **타입화된 기본키 패턴 채택**([architecture.md](../rule/architecture.md) 정본) — §4 `+UserId`·`+UserIdJavaType`(모듈 루트) · `Registration` 에 `userId` 추가(**"id 미포함" 결정 번복**) · §3-2 해시 확산 예고 정정 · §2-2 subscription 키 방식 확정(UserId 참조) · §6-5 호출자 재검토(가드 불채택 유지). 발단·첫 소비자: payment-design §2-1 쟁점 1 | **없음** — `users` 스키마 무변경(`@Id` 는 Long 유지, 경계에서만 래핑). 코드 반영은 payment 라운드 `feat(auth)` 커밋 |
 
 - v2 는 전부 **구현 라운드에서 실측으로 드러난 것**이다(blockers B1·B2·B4). 설계 검토만으로는 안 나왔다.
 - ⚠️ **해시 저장을 지금 하는 이유가 이 표에 있다** — 행이 0개인 지금은 마이그레이션이 “없음”이지만,

@@ -13,7 +13,7 @@ Modulith 는 **패키지 = 애플리케이션 모듈**로 보고, 모듈 경계�
 ```
 kang20.ytcreator/
 ├── ytcreatorApplication.java        @SpringBootApplication — 모듈 스캔의 루트
-├── shared/                            공유 커널 (OPEN 모듈: 예외·시간·ID VO·보안)
+├── shared/                            공유 커널 (OPEN 모듈: 예외·시간·보안·타입 ID 공통 부모)
 │   └── package-info.java              @ApplicationModule(type = Type.OPEN)
 ├── config/                            전역 스프링 설정 (OPEN 모듈)
 │   └── package-info.java
@@ -58,6 +58,54 @@ import org.springframework.modulith.ApplicationModule;
 
 `allowedDependencies` 를 **빈 배열로 두면 완전 격리**된다. 새 의존을 추가할 땐 여기에 적으면서
 "이 결합이 정말 필요한가"를 한 번 되묻는 게 이 구조의 요점이다.
+
+## 모듈 간 데이터 참조 — 타입화된 기본키 (2026-08-11 채택)
+
+다른 모듈의 엔티티를 **데이터로** 가리켜야 할 때(FK 컬럼), 아래 셋을 전부 금지하고
+**소유 모듈이 노출한 타입 ID 만** 저장·전달한다.
+
+| 금지 | 왜 |
+|---|---|
+| 엔티티 참조 (`@ManyToOne User`) | `internal/` 침범. 모듈 경계가 무너진다 |
+| 원시 `Long`/`String` PK | "어느 도메인의 Long 인가"가 시그니처에서 사라진다 — 컴파일러가 혼용을 못 잡는다 |
+| 자연키 복제 (해시 등을 자기 테이블에 재저장) | 값이 두 곳에 존재해 동기화 무보장. 원천 값 변경(이관 등) 시 전 행 마이그레이션 |
+
+**규칙**
+
+- 모듈이 밖에 노출하는 것은 **도메인 엔티티가 아니라 기본키 타입뿐**이다.
+  구체 타입 ID(`UserId` 등)는 **소유 모듈 루트**에 둔다("모듈 루트 public 타입만 외부에 보인다" 규칙 그대로).
+  엔티티·리포지토리는 `internal/` 에 남는다.
+- 공통 부모는 `shared/domain` 에 둔다: `ValueObject`(equals/hashCode) ·
+  `LongTypeIdentifier`(Serializable + 언랩 접근자) · 대응 `*JavaType`(Hibernate 6+ 어댑터).
+  **필요한 계열만 이식한다** — `StringTypeIdentifier` 계열은 String PK 도메인이 생길 때 추가한다
+  (소비자 없는 부품은 과한 추상화다).
+- **노출되는 식별자에만 타입을 입힌다.** 밖으로 나가지 않는 내부 대리키는 원시 `Long` 을 유지한다 —
+  전 PK 일괄 적용은 과한 추상화다.
+- 참조하는 쪽은 `allowedDependencies` 에 소유 모듈을 명시한다. 타입 ID 참조는
+  "이벤트 우선" 원칙의 예외가 아니다 — **행위(호출)가 아니라 데이터(식별자)** 이기 때문이다.
+
+**JPA 매핑 (선례: `C:\Spring_Study\youngZZ` — 검증 환경 Boot 4 / Hibernate 7)**
+
+```java
+// FK 컬럼 — 연관관계 없이 값 컬럼으로
+@JavaType(UserIdJavaType.class)
+@Column(name = "user_id", nullable = false, updatable = false)
+private UserId userId;
+
+// 노출되는 자기 PK 도 타입화 가능 — IDENTITY 채번값을 JavaType.wrap 이 감싼다
+@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+@JavaType(UsageTicketIdJavaType.class)
+private UsageTicketId id;
+```
+
+| 함정 | 처방 |
+|---|---|
+| `wrap`/`fromString` 이 **리플렉션으로 `(Long)` 생성자**를 부른다 — 컴파일 타임에 안 잡힌다 | 구체 ID 는 **박싱 타입 1개짜리 public 생성자** 필수. 예외 분기까지 테스트로 커버 |
+| 하이드레이션이 그 생성자를 그대로 탄다 | **생성자에 검증 로직 금지.** 외부 입력 검증은 static 팩토리로 분리 |
+| 네이티브 쿼리는 JavaType 을 안 탄다 | 네이티브 한정 `longValue()` 수동 언랩. **JPQL/derived query 는 타입 ID 그대로** |
+| `ValueObject.equals` 가 strict `getClass()` 비교 | 구체 ID 는 **`final`** 선언 |
+| `@ManyToOne` 이 없으므로 DB FK 가 자동 생성되지 않는다 | **물리 FK 를 걸지 않는 것이 기본**(모듈 자율성·삭제 순서 자유). 무결성은 UNIQUE 제약이 담당하고, 참조 관계는 수동 DDL 주석으로 표기 |
+| JPQL 집계의 그룹 키가 타입 ID 로 돌아온다 | 리포지토리 javadoc 에 결과 타입 명시 |
 
 ## 구조 검증 테스트 (필수 — 모든 프로젝트에 1개)
 
@@ -109,4 +157,5 @@ src/docs/asciidoc/{name}.adoc
 | `verify()` 가 "module not declared" | 최상위 패키지에 `package-info.java` 없음 | 모듈로 만들거나 `shared` 로 옮긴다 |
 | 두 모듈이 서로 참조 | 순환 의존 | 한쪽을 이벤트 구독으로 뒤집는다 |
 | 엔티티를 다른 모듈에서 쓰고 싶다 | 경계 설계 실패 신호 | 필요한 값만 담은 record 를 모듈 루트에 노출하거나 이벤트로 전달 |
+| 다른 모듈 데이터를 키로 저장하고 싶다 | FK 가 필요한 것 | **소유 모듈이 노출한 타입 ID** 를 값 컬럼으로 (→ "타입화된 기본키" 절) |
 | 공용 유틸을 모든 모듈이 참조 | `shared` 가 OPEN 이 아님 | `@ApplicationModule(type = Type.OPEN)` |
