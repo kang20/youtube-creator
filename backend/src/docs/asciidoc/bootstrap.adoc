@@ -1,0 +1,34 @@
+== 진입 (bootstrap)
+
+미니앱 진입 직후 **1회 호출**해 "나는 누구인가 + 쓸 수 있는가"를 한 번에 받는다.
+요구 정본은 `backend/docs/domain/auth.md` §5-2 (v3) · 이용권 스키마는 `payment.md` §5-3.
+
+=== `POST /api/v1/bootstrap`
+
+**인증 필요** — 익명키를 처음 등록시키는 호출이지만 헤더 자체는 필수다(없으면 등록할 대상이 없다).
+멱등하다 — 몇 번 호출해도 사용자는 하나이고 응답도 같다.
+
+operation::bootstrap-entry[snippets='http-request,request-headers,http-response,response-fields']
+
+* `newUser` 로 온보딩 노출을 분기한다.
+* `entitlement` 는 이용권 상태 절(payment)과 **같은 모양**이다 — S1 배지를 즉시 렌더링하고,
+  **분기는 `accessible` 하나로만** 한다.
+
+=== 실패 처리
+
+operation::bootstrap-entry-fail-missing-key[snippets='http-response']
+operation::bootstrap-entry-fail-malformed-key[snippets='http-response']
+
+|===
+| 응답 | 프론트 행동
+
+| 401 `AUTH_001` (헤더 누락) | SDK `getAnonymousKey()` 재호출 1회 → 실패 시 오류 안내 후 종료
+| 401 `AUTH_002` (형식 위반) | 재시도해도 같다. "이용할 수 없는 환경" 안내 후 종료
+| 500 `COMMON_002` | 백오프 재시도
+|===
+
+[CAUTION]
+====
+**부트스트랩 실패(500)를 "이용권 없음"으로 간주하지 않는다** — 부분 실패를 허용하지 않는
+설계라(전체 500), 실패를 미보유로 오해하면 **이미 결제한 사용자에게 결제 유도 화면**을 띄우게 된다.
+====

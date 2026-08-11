@@ -8,5 +8,6 @@
 
 include::common.adoc[]
 
-// 도메인 API 는 구현 시 여기에 include 한다
-// include::{도메인}.adoc[]
+include::bootstrap.adoc[]
+
+include::payment.adoc[]
