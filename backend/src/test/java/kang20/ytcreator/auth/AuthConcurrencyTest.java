@@ -96,8 +96,14 @@ class AuthConcurrencyTest {
 
 		List<Registration> results = raceRegister(key, THREADS);
 
-		LocalDateTime rowCreatedAt =
-			userRepository.findByAnonymousKeyHash(hasher.hash(key)).orElseThrow().getCreatedAt();
+		var row = userRepository.findByAnonymousKeyHash(hasher.hash(key)).orElseThrow();
+		LocalDateTime rowCreatedAt = row.getCreatedAt();
+
+		// (v3) auth-design §10 — 승자·패자 전원이 같은 행의 userId 를 받는다. 여기서 갈리면
+		// 경쟁에서 진 쪽의 결제·이용권이 존재하지 않는 사용자에게 붙는다(payment-design §2-1 쟁점 1).
+		assertThat(results)
+			.allSatisfy(registration ->
+				assertThat(registration.userId()).isEqualTo(new UserId(row.getId())));
 
 		// 진 쪽(newUser=false)은 ① 또는 ③에서 DB 행을 읽으므로 저장값과 정확히 같다.
 		assertThat(results).filteredOn(registration -> !registration.newUser())

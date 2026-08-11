@@ -79,6 +79,10 @@ class AuthServiceTest {
 		User stored = storedFor(key);
 		assertThat(stored.getAnonymousKeyHash()).isEqualTo(hasher.hash(key));
 		assertThat(userRepository.count()).isEqualTo(1);
+
+		// (v3) auth-design §10 — userId 는 저장 행의 id 를 타입화한 값이다. 다른 행의 id 가 실리면
+		// payment 의 모든 소유권(주문·잔량·구독)이 남의 것에 붙는다.
+		assertThat(registration.userId()).isEqualTo(new UserId(stored.getId()));
 	}
 
 	/**
@@ -125,6 +129,11 @@ class AuthServiceTest {
 
 		// 멱등이므로 응답도 같다 — auth.md §5-2 "몇 번 호출해도 사용자는 하나이고 응답도 같다"
 		assertThat(second.registeredAt()).isEqualTo(third.registeredAt());
+
+		// (v3) auth-design §10 — 멱등은 userId 축에도 적용된다. 재호출이 다른 id 를 주면
+		// payment 가 같은 사용자를 두 명으로 본다.
+		assertThat(second.userId()).isEqualTo(first.userId());
+		assertThat(third.userId()).isEqualTo(first.userId());
 	}
 
 	/**
@@ -189,20 +198,31 @@ class AuthServiceTest {
 
 	/**
 	 * U4 — 등록·식별은 <b>모듈 공개 API</b> 로 제공된다(auth.md §3 U4 · §5-3).
-	 * 집계 모듈 {@code bootstrap} 이 이 시그니처로 부트스트랩 응답을 조립한다(auth-design.md §2-2).
+	 * 집계 모듈 {@code bootstrap} 과 payment 컨트롤러가 이 시그니처로 익명키를 해석한다
+	 * (auth-design v3 §4 · payment-design.md §2-1 쟁점 1).
+	 *
+	 * <p>(v3) v2 의 "PK 를 담지 않는다"가 번복됐다 — 원시 Long 이 아니라 <b>타입화한 {@code UserId}</b> 로
+	 * 담는다. 필드가 넷으로 늘거나 {@code userId} 가 원시 타입으로 바뀌면 여기서 먼저 빨개져야 한다.
 	 */
 	@Test
-	@DisplayName("모듈 밖에서 쓸 수 있는 것은 AuthService.register 와 Registration 두 필드뿐이다")
+	@DisplayName("Registration 은 newUser·registeredAt·userId 세 필드이고 userId 는 저장 행의 id 다")
 	void 모듈_공개_API_계약() {
 		String key = AnonymousKeyFixture.unique("public-api");
 
 		Registration registration = authService.register(key);
 
-		// auth-design.md §4 — Registration 에 사용자 식별자(PK)를 담지 않는다.
+		// auth-design v3 §4 — record(newUser, registeredAt, userId). HTTP 응답에는 userId 를 싣지
+		// 않지만(payment-design §2-2) 모듈 계약에는 담는다.
 		assertThat(Registration.class.getRecordComponents())
 			.extracting(component -> component.getName())
-			.containsExactly("newUser", "registeredAt");
+			.containsExactly("newUser", "registeredAt", "userId");
+		assertThat(Registration.class.getRecordComponents()[2].getType())
+			.as("원시 Long 로 되돌리면 어느 도메인의 Long 인지 시그니처에서 사라진다(§2-1 쟁점 1)")
+			.isEqualTo(UserId.class);
 		assertThat(registration.newUser()).isTrue();
 		assertThat(registration.registeredAt()).isNotNull();
+
+		// (v3) auth-design §10 — userId == 저장 행의 id
+		assertThat(registration.userId()).isEqualTo(new UserId(storedFor(key).getId()));
 	}
 }
