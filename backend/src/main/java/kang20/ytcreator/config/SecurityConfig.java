@@ -29,7 +29,12 @@ public class SecurityConfig {
 	 * 모니터링이 조용히 죽는다. 외부 노출은 Caddy 가 막는다.
 	 */
 	private static final String[] PUBLIC_PATHS = {
-		"/actuator/**"
+		"/actuator/**",
+		// 상품 조회 — 결제 유도 전에 보이는 목록이라 익명키 없이 연다(payment-design.md §7 · auth.md §4-2)
+		"/api/v1/payments/products",
+		// 토스 웹훅 — 토스는 X-Anonymous-Key 를 보내지 않는다(payment.md §10-8ⓐ). 빠지면 U9 가 통째로
+		// 죽는다. permitAll 이지만 payment 모듈이 Basic Auth 로 다시 막는다(payment-design.md §2-1 쟁점 3)
+		"/api/v1/webhooks/toss/**"
 	};
 
 	@Bean
