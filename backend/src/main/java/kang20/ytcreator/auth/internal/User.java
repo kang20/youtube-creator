@@ -42,6 +42,16 @@ public class User extends BaseTimeEntity {
 		this.anonymousKeyHash = anonymousKeyHash;
 	}
 
+	/**
+	 * 경계({@code Registration})에서 {@code UserId} 로 래핑돼 나간다(auth-design v3 §4).
+	 *
+	 * <p>{@code @Id} 는 <b>원시 {@code Long} 을 유지</b>한다 — 기구현·기배포 코드의 churn 대비
+	 * 타입화 이득이 없다(payment-design.md §7). {@code users} DDL 무변경.
+	 */
+	public Long getId() {
+		return id;
+	}
+
 	public String getAnonymousKeyHash() {
 		return anonymousKeyHash;
 	}

@@ -42,17 +42,18 @@ public class AuthService {
 
 		Optional<User> existing = userRepository.findByAnonymousKeyHash(anonymousKeyHash);
 		if (existing.isPresent()) {
-			return new Registration(false, existing.get().getCreatedAt());
+			return new Registration(false, existing.get().getCreatedAt(), new UserId(existing.get().getId()));
 		}
 
 		try {
+			// saveAndFlush 라 채번이 보장된 id 에서 꺼낸다 — 추가 쿼리 없음(payment-design.md §7)
 			User created = userWriter.insert(anonymousKeyHash);
 
-			return new Registration(true, created.getCreatedAt());
+			return new Registration(true, created.getCreatedAt(), new UserId(created.getId()));
 		} catch (DataIntegrityViolationException e) {
 			User winner = userRepository.findByAnonymousKeyHash(anonymousKeyHash).orElseThrow();
 
-			return new Registration(false, winner.getCreatedAt());
+			return new Registration(false, winner.getCreatedAt(), new UserId(winner.getId()));
 		}
 	}
 }
