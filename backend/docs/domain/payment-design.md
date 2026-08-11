@@ -266,6 +266,22 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 
 ## 4. 모듈 매핑 (Spring Modulith)
 
+**모듈 내부 레이아웃 — `internal/` 을 레이어 서브패키지로 조직한다** (2026-08-11 사용자 결정.
+규칙: [architecture.md](../rule/architecture.md) "모듈 내부 레이아웃").
+모듈 **경계**는 그대로다 — `internal/` 하위는 몇 단계든 전부 모듈 내부라 `verify()` 에 영향이 없다.
+
+```
+payment/
+├── PaymentService · 컨트롤러 2 · UsageTicketId(·JavaType)   ← 루트 (Modulith 노출 규칙상 고정)
+├── dto/                                                     ← @NamedInterface("dto")
+└── internal/
+    ├── entity/       엔티티 4 + 상태 enum 2
+    ├── repository/   리포지토리 4
+    ├── writer/       GrantWriter · SubscriptionApplyWriter   (트랜잭션 쓰기 빈)
+    ├── client/       TossOrderClient · TossOrderStatus       (외부 접점 — ✅-11 격리)
+    └── support/      SubscriptionGate · WebhookAuthenticator · OrderIdMask · ProductCatalogProperties
+```
+
 | 위치 | 산출물 | 공개 여부 |
 |---|---|---|
 | `payment/package-info.java` | `@ApplicationModule(displayName="결제·이용권", allowedDependencies={"shared", "auth", "auth :: dto"})` — auth 의존의 실체는 `UserId` 참조 + 컨트롤러의 `register` 호출(§2-1 쟁점 1). **(구현 정정)** `Registration` 이 `auth/dto` 에 있어 `@NamedInterface("dto")` 참조가 추가로 필요하다 — Modulith 는 하위 패키지를 자동 노출하지 않는다 | — |
@@ -276,15 +292,15 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 | `payment/PaymentController.java` | `products` · `grant` · `entitlement` · `recheck`. **`AuthService.register` 로 익명키→`UserId` 해석(모듈 내 유일 지점)** | public |
 | `payment/PaymentWebhookController.java` | 웹훅 수신 (게이트 밖 — §2-1 쟁점 3) | public |
 | `payment/dto/` | `ProductCatalog` · `EntitlementView` · `GrantResult` · `UsageTicketView` · 요청 record | public |
-| `payment/internal/PaymentOrder.java` 외 3 | 엔티티 | 모듈 밖 참조 불가 |
-| `payment/internal/*Repository.java` | 리포지토리 4개 | 모듈 밖 참조 불가 |
-| `payment/internal/GrantWriter.java` | **`@Transactional(REQUIRES_NEW)`** 지급 쓰기. **별도 빈이어야 하는 이유는 §6-5** | 모듈 밖 참조 불가 |
-| `payment/internal/SubscriptionApplyWriter.java` | **`@Transactional`** 구독 반영 쓰기 — 웹훅 `apply`(§5-4) · recheck `applyFromClient`(§5-5). **별도 빈인 이유는 `GrantWriter` 와 같다** — `PaymentService` 안에서 자기 호출하면 프록시를 우회해 트랜잭션이 안 걸린다 | 모듈 밖 참조 불가 |
-| `payment/internal/TossOrderClient.java` | 토스 `get-order-status` 호출 (mTLS) | 모듈 밖 참조 불가 |
-| `payment/internal/TossOrderStatus.java` | 토스 응답 8종 + `resultType` 봉투 → 우리 판정 매핑 | 모듈 밖 참조 불가 |
-| `payment/internal/WebhookAuthenticator.java` | Basic Auth 검증 (U11) | 모듈 밖 참조 불가 |
-| `payment/internal/SubscriptionGate.java` | `status` + `expiresAt` + STALE → `accessible` 판정(§4-3·§4-7-1) | 모듈 밖 참조 불가 |
-| `payment/internal/ProductCatalogProperties.java` | `sku` 설정 바인딩 (`@ConfigurationProperties`) | 모듈 밖 참조 불가 |
+| `payment/internal/entity/` | 엔티티 4 + 상태 enum 2 (`SubscriptionStatus`·`TicketStatus`) | 모듈 밖 참조 불가 |
+| `payment/internal/repository/` | 리포지토리 4개 | 모듈 밖 참조 불가 |
+| `payment/internal/writer/GrantWriter.java` | **`@Transactional(REQUIRES_NEW)`** 지급 쓰기. **별도 빈이어야 하는 이유는 §6-5** | 모듈 밖 참조 불가 |
+| `payment/internal/writer/SubscriptionApplyWriter.java` | **`@Transactional`** 구독 반영 쓰기 — 웹훅 `apply`(§5-4) · recheck `applyFromClient`(§5-5). **별도 빈인 이유는 `GrantWriter` 와 같다** — `PaymentService` 안에서 자기 호출하면 프록시를 우회해 트랜잭션이 안 걸린다 | 모듈 밖 참조 불가 |
+| `payment/internal/client/TossOrderClient.java` | 토스 `get-order-status` 호출 (mTLS) | 모듈 밖 참조 불가 |
+| `payment/internal/client/TossOrderStatus.java` | 토스 응답 8종 + `resultType` 봉투 → 우리 판정 매핑 | 모듈 밖 참조 불가 |
+| `payment/internal/support/WebhookAuthenticator.java` | Basic Auth 검증 (U11) | 모듈 밖 참조 불가 |
+| `payment/internal/support/SubscriptionGate.java` | `status` + `expiresAt` + STALE → `accessible` 판정(§4-3·§4-7-1) | 모듈 밖 참조 불가 |
+| `payment/internal/support/ProductCatalogProperties.java` | `sku` 설정 바인딩 (`@ConfigurationProperties`) | 모듈 밖 참조 불가 |
 | `bootstrap/package-info.java` | `@ApplicationModule(displayName="진입", allowedDependencies={"shared","auth","payment"})` | — |
 | `bootstrap/BootstrapController.java` | `POST /api/v1/bootstrap` | public |
 | `bootstrap/dto/BootstrapResponse.java` | `record(newUser, registeredAt, entitlement)` — ⚠️ **`userId` 를 싣지 않는다**(§2-2) | public |
@@ -861,13 +877,13 @@ main 브랜치 docs/api/index.html   ← 프론트가 읽는 유일한 창구
 | 산출물 | 덮는 테스트 | 비고 |
 |---|---|---|
 | `payment/PaymentService.java` | `PaymentGrantTest` + 동시성 2본 + `SubscriptionRecheckTest` + `PaymentConsumeTest` | **catch 분기는 동시성 테스트로만 도달한다** — 목으로 예외를 흉내 내면 §6-5 트랜잭션 경계가 검증되지 않는다 |
-| `payment/internal/SubscriptionApplyWriter.java` | `PaymentWebhookTest` + `SubscriptionRecheckTest` | 웹훅 반영 + 클라 반영. `lastWebhookOccurredAt` 불변 단언이 여기 걸린다 |
-| `payment/internal/GrantWriter.java` | `PaymentGrantTest` + `PaymentGrantConcurrencyTest` | 정상 커밋 + 경쟁 시 롤백 경계 |
-| `payment/internal/TossOrderClient.java` | `TossOrderClientTest` | mTLS 조립은 `enabled=false` 로 우회. **조립 자체는 단위 테스트 대상이 아니다** |
-| `payment/internal/TossOrderStatus.java` | `PaymentGrantTest` + `TossOrderClientTest` | status 8종 × `resultType` 7종 매핑 전수 |
-| `payment/internal/SubscriptionGate.java` | `SubscriptionGateTest` | 경계값 |
-| `payment/internal/WebhookAuthenticator.java` | `PaymentWebhookTest` | 일치/불일치/헤더 없음 |
-| `payment/internal/*Repository.java` | 해당 서비스 테스트 | 인터페이스 + `@Modifying` 쿼리는 **동시성 테스트가 실제로 덮는다** |
+| `payment/internal/writer/SubscriptionApplyWriter.java` | `PaymentWebhookTest` + `SubscriptionRecheckTest` | 웹훅 반영 + 클라 반영. `lastWebhookOccurredAt` 불변 단언이 여기 걸린다 |
+| `payment/internal/writer/GrantWriter.java` | `PaymentGrantTest` + `PaymentGrantConcurrencyTest` | 정상 커밋 + 경쟁 시 롤백 경계 |
+| `payment/internal/client/TossOrderClient.java` | `TossOrderClientTest` | mTLS 조립은 `enabled=false` 로 우회. **조립 자체는 단위 테스트 대상이 아니다** |
+| `payment/internal/client/TossOrderStatus.java` | `PaymentGrantTest` + `TossOrderClientTest` | status 8종 × `resultType` 7종 매핑 전수 |
+| `payment/internal/support/SubscriptionGate.java` | `SubscriptionGateTest` | 경계값 |
+| `payment/internal/support/WebhookAuthenticator.java` | `PaymentWebhookTest` | 일치/불일치/헤더 없음 |
+| `payment/internal/repository/` | 해당 서비스 테스트 | 인터페이스 + `@Modifying` 쿼리는 **동시성 테스트가 실제로 덮는다** |
 | 엔티티 4개 | `PaymentGrantTest` + `PaymentConsumeTest`(`UsageTicket`) | 생성자·게터·상태 전이 |
 | `shared/domain/` 타입 ID 부품 3개 | `LongTypeIdentifierJavaTypeTest` | 리플렉션 분기까지 전 라인 — youngZZ 가 100% 커버 선례 |
 | `auth/UserId.java` · `payment/UsageTicketId.java` | 계약 단위 테스트 + 모듈 통합(실 DB 왕복) | ⚠️ **모듈 루트라 `dto/**` 제외에 안 걸린다** — 커버리지 집계 대상. `@JavaType` wrap/unwrap 은 통합 테스트의 flush/clear 후 재조회가 실제로 태운다 |
