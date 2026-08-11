@@ -1,4 +1,7 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.support;
+
+import kang20.ytcreator.payment.internal.entity.Subscription;
+import kang20.ytcreator.payment.internal.entity.SubscriptionStatus;
 
 import java.time.LocalDateTime;
 import org.springframework.stereotype.Component;

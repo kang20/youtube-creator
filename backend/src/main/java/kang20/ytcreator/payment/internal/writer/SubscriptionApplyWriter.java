@@ -1,4 +1,8 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.writer;
+
+import kang20.ytcreator.payment.internal.entity.Subscription;
+import kang20.ytcreator.payment.internal.entity.SubscriptionStatus;
+import kang20.ytcreator.payment.internal.repository.SubscriptionRepository;
 
 import java.time.LocalDateTime;
 import kang20.ytcreator.payment.dto.WebhookEvent;

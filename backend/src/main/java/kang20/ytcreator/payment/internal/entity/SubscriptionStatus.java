@@ -1,4 +1,6 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.entity;
+
+import kang20.ytcreator.payment.internal.support.SubscriptionGate;
 
 /**
  * 토스 구독 상태 6종(payment-design.md §3 · iap-essentials §3-5).

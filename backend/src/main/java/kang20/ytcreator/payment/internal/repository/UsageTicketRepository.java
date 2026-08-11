@@ -1,4 +1,7 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.repository;
+
+import kang20.ytcreator.payment.internal.entity.TicketStatus;
+import kang20.ytcreator.payment.internal.entity.UsageTicket;
 
 import kang20.ytcreator.payment.UsageTicketId;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,6 +20,6 @@ public interface UsageTicketRepository extends JpaRepository<UsageTicket, UsageT
 	 */
 	@Modifying(clearAutomatically = true)
 	@Query("update UsageTicket t set t.status = :to where t.id = :id"
-		+ " and t.status = kang20.ytcreator.payment.internal.TicketStatus.RESERVED")
+		+ " and t.status = kang20.ytcreator.payment.internal.entity.TicketStatus.RESERVED")
 	int transition(@Param("id") UsageTicketId id, @Param("to") TicketStatus to);
 }

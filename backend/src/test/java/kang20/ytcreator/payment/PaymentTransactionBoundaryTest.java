@@ -1,5 +1,7 @@
 package kang20.ytcreator.payment;
 
+import kang20.ytcreator.payment.internal.entity.SubscriptionStatus;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.reflect.Field;
@@ -9,8 +11,8 @@ import kang20.ytcreator.auth.AuthService;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.bootstrap.BootstrapController;
 import kang20.ytcreator.payment.dto.ProductType;
-import kang20.ytcreator.payment.internal.GrantWriter;
-import kang20.ytcreator.payment.internal.SubscriptionApplyWriter;
+import kang20.ytcreator.payment.internal.writer.GrantWriter;
+import kang20.ytcreator.payment.internal.writer.SubscriptionApplyWriter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Propagation;
@@ -81,7 +83,7 @@ class PaymentTransactionBoundaryTest {
 		Method apply = SubscriptionApplyWriter.class.getDeclaredMethod("apply",
 			Long.class, kang20.ytcreator.payment.dto.WebhookEvent.class);
 		Method applyFromClient = SubscriptionApplyWriter.class.getDeclaredMethod("applyFromClient",
-			Long.class, kang20.ytcreator.payment.internal.SubscriptionStatus.class,
+			Long.class, kang20.ytcreator.payment.internal.entity.SubscriptionStatus.class,
 			java.time.LocalDateTime.class, boolean.class);
 
 		assertThat(apply.getAnnotation(Transactional.class)).isNotNull();

@@ -1,4 +1,4 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;

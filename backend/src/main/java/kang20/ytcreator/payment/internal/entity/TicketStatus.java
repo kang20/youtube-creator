@@ -1,4 +1,4 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.entity;
 
 /**
  * 소모 티켓 상태(payment-design.md §3 — ✅-4ⓐ "생성 시 예약 → 완료 확정"의 실체).

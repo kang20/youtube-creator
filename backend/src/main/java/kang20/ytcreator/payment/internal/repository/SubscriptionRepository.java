@@ -1,4 +1,6 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.repository;
+
+import kang20.ytcreator.payment.internal.entity.Subscription;
 
 import java.util.Optional;
 import kang20.ytcreator.auth.UserId;

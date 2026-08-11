@@ -6,7 +6,7 @@ import java.time.Clock;
 import kang20.ytcreator.base.MutableClock;
 import kang20.ytcreator.config.JpaAuditingConfig;
 import kang20.ytcreator.payment.dto.ProductCatalog;
-import kang20.ytcreator.payment.internal.TossOrderClient;
+import kang20.ytcreator.payment.internal.client.TossOrderClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

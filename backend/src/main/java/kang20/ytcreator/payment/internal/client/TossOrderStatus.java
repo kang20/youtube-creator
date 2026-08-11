@@ -1,4 +1,4 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.client;
 
 import kang20.ytcreator.shared.exception.ErrorCode;
 

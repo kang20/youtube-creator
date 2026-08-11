@@ -1,4 +1,4 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.support;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

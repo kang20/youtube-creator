@@ -1,4 +1,4 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.support;
 
 /**
  * 주문 식별자 로그 마스킹 — U14(비노출)의 payment 자체 정책.

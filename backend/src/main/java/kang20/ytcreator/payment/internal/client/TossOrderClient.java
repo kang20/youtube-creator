@@ -1,4 +1,4 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.client;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -10,6 +10,7 @@ import java.security.KeyStore;
 import java.time.Duration;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
+import kang20.ytcreator.payment.internal.support.OrderIdMask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

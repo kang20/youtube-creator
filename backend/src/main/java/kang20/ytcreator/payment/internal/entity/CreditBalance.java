@@ -1,4 +1,6 @@
-package kang20.ytcreator.payment.internal;
+package kang20.ytcreator.payment.internal.entity;
+
+import kang20.ytcreator.payment.internal.repository.CreditBalanceRepository;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

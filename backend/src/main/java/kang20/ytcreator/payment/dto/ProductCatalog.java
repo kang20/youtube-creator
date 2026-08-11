@@ -1,5 +1,7 @@
 package kang20.ytcreator.payment.dto;
 
+import kang20.ytcreator.payment.internal.entity.Subscription;
+
 /**
  * U1 상품 목록 응답(payment.md §5-2 원문 스키마 · payment-design.md §5-1) — 상품별 <b>중첩 객체</b>다.
  * {@code productType} 이 클라가 어느 주문 함수를 쓸지 결정한다:
