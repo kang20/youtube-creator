@@ -61,12 +61,27 @@
 
 - 클라 결제 완료 → **서버가 토스 주문 상태 조회 API 로 검증한 뒤** 재화를 지급한다.
 - `orderId` **멱등** 처리 필수 — 같은 주문으로 두 번 지급되지 않게 유니크 제약 + 멱등 키.
+  ⚠️ **UNIQUE 위반은 JPA 경로에서 `DuplicateKeyException` 으로 변환되지 않는다**(payment 실측) —
+  `DataIntegrityViolationException` 의 원인 체인에서 `ConstraintViolationException.getKind()==UNIQUE`
+  로 판별한다(payment-design §6-3).
 - 미결 주문 복원 흐름을 반드시 만든다(`getPendingOrders` → `completeProductGrant`).
   결제는 됐는데 지급이 안 된 상태를 사용자가 스스로 복구할 수 있어야 한다.
+
+### 단건(소모품) 결제
+
+- 흐름: `getProductItemList`(가격 표시는 SDK `displayAmount` 정본) → `createOneTimePurchaseOrder`
+  → `processProductGrant({ orderId })` 콜백 → **서버 지급 API**(멱등) → `completeProductGrant`.
+- **30초 예산**: 콜백이 30초 안에 `true` 를 반환하지 못하면 토스가 환불 안내 화면을 띄운다.
+  서버 지급은 토스 왕복 포함 상한 안에 답하고, 초과는 실패 처리 후 **복원에 위임**한다(재시도 루프 금지).
+- **단건에는 웹훅이 없다** — 환불 감지 수단도 없다(payment ✅-8 로 "감지하지 않음" 확정).
+- 갱신·상태 변화가 없다 — 재구매 = 새 `orderId`. 멱등 위험은 단건이 더 높다(중복 지급 = 잔량 증가).
 
 ### 자동갱신 구독
 
 - SDK: `createSubscriptionPurchaseOrder`(주문) · `getSubscriptionInfo`(상태) · 주기 WEEKLY/MONTHLY/YEARLY
+- 🔴 **서버가 구독 상태를 조회할 파트너 API 는 없다** (2026-08-09 재검증 — OpenAPI `paths` 에 IAP 는
+  `get-order-status` 1개뿐. 해지 API 도 없다). 서버가 아는 구독 상태 = **최초 주문 검증 + 웹훅 누적**이고,
+  웹훅 유실 시 스스로 바로잡을 수단이 없다 → payment.md §4-7-1(STALE 보정)이 그 대책이다.
 - **구독 소유권의 정본은 우리 DB 의 `anonKey ↔ orderId` 매핑**이다. 로그인이 없으므로 이 매핑이
   끊기면 사용자는 돈을 내고 못 쓴다 — 유니크 제약·백업·정합성 요구가 일반 테이블보다 높다.
 - 구현 형태: `anonKey → users(해시, auth 소유) → UserId → payment 테이블의 user_id FK` —
