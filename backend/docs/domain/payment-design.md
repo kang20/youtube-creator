@@ -236,8 +236,11 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 - ⚠️ **`Subscription.userId` 도 UNIQUE 다.** 플랜 전환 시 중복 구독 사례가 보고돼 있는데
   (payment.md §8), **우리는 플랜이 하나뿐**이라 두 번째 활성 구독은 정상 상태가 아니다.
   두 번째가 오면 DB 가 거부하고 `PAY_003` 으로 떨어진다 — **조용히 두 개를 갖는 것보다 낫다.**
-- ⚠️ **`expiresAtEstimated` 가 없으면 STALE 판정이 거짓말한다.** 추정값(+31일)과 웹훅이 준 정본을
-  구분하지 못하면, 웹훅을 **한 번도 못 받은 구독**과 **받았지만 만료된 구독**이 같아 보인다.
+- **`expiresAtEstimated` 는 진단 정보다** — 웹훅 정본을 한 번이라도 받았는지를 남긴다.
+  ⚠️ **(구현 라운드 1 정정)** 초안은 이 필드를 STALE 판정식에 넣었지만 **기각됐다** —
+  그러면 정본 수신 **후**의 갱신 유실(매월 반복되는 정상 시나리오)을 STALE 로 못 잡아
+  §6-7 이 금지한 "이미 낸 사람에게 결제 유도" 경로가 된다. **판정 트리거는 payment.md §4-7-1③
+  원문대로 시간 경과다**: `status == ACTIVE && (expiresAt + 유예 1일) 경과`.
 
 ### 3-1. 수동 DDL — **필요하다**
 
@@ -265,7 +268,8 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 
 | 위치 | 산출물 | 공개 여부 |
 |---|---|---|
-| `payment/package-info.java` | `@ApplicationModule(displayName="결제·이용권", allowedDependencies={"shared", "auth"})` — auth 의존의 실체는 `UserId` 참조 + 컨트롤러의 `register` 호출(§2-1 쟁점 1) | — |
+| `payment/package-info.java` | `@ApplicationModule(displayName="결제·이용권", allowedDependencies={"shared", "auth", "auth :: dto"})` — auth 의존의 실체는 `UserId` 참조 + 컨트롤러의 `register` 호출(§2-1 쟁점 1). **(구현 정정)** `Registration` 이 `auth/dto` 에 있어 `@NamedInterface("dto")` 참조가 추가로 필요하다 — Modulith 는 하위 패키지를 자동 노출하지 않는다 | — |
+| `auth/dto/package-info.java` · `payment/dto/package-info.java` | **(구현 정정 — 신설)** `@NamedInterface("dto")` — dto 를 다른 모듈이 참조하려면 명시 선언 필요. `bootstrap` 은 `{"shared","auth","auth :: dto","payment","payment :: dto"}` | — |
 | `payment/PaymentService.java` | 모듈 공개 API — 지급·조회·소모·재확인. **사용자 단위 메서드는 전부 `UserId` 를 받는다** | **public (모듈 밖 유일 진입)** |
 | `payment/UsageTicketId.java` | **타입화된 티켓 PK** — `final class extends LongTypeIdentifier`. subtitle 이 쓸 유일한 payment 식별자 | **public (모듈 루트)** |
 | `payment/UsageTicketIdJavaType.java` | Hibernate 매핑 어댑터 | public |
@@ -427,6 +431,10 @@ handleWebhook(authHeader, event):
 
 - **U13(환불·회수 반영)은 이 흐름이 구현한다** — `current.status = REVOKED` 가 즉시 회수다.
   단건 환불 감지는 ✅-8 로 "하지 않음" 확정이라 **U13 의 구현 범위는 구독 웹훅뿐**이다.
+- **(구현 명문화) 웹훅 null 방어 3건 — "정본을 무로 덮지 않는다"**: ⓐ `current.autoRenew == null`
+  → 기존 값 유지 ⓑ `current.expiresAt == null` → 기존 값 유지(구매 직후 null 사례가 보고된 필드다 —
+  payment.md §3-2) ⓒ `occurredAt == null` → `lastWebhookOccurredAt` 미덮어쓰기.
+  셋 다 "필드 하나가 비어 왔다"가 "상태를 지워라"를 뜻하지 않기 때문이다.
 - **`changeReason` 으로 분기하지 않는다.** 12종에 1:1 로 로직을 붙이면 미문서화 값이 추가될 때 깨진다.
   `changeReason` 은 **로그에만 남기고**, 반영은 `current.status`·`current.expiresAt`·`current.autoRenew`
   세 값으로 한다 — `RESTARTED` 인데 `autoRenew=false` 인 사례가 보고된 이유가 이것이다.
@@ -545,13 +553,20 @@ auth 에는 없던 문제다. 토스 왕복이 트랜잭션 안에 들어가면 
 | 바깥 `@Transactional` + 쓰기만 `REQUIRES_NEW` | ❌ | 함정 ③ + **함정 ④(외부 호출을 감싼다)** |
 | 비관적 락 / 잠금 테이블 | ❌ | 결제 경로 직렬화. 30초 예산과 정면 충돌 |
 | `INSERT ... ON DUPLICATE KEY` (네이티브) | △ | H2(MySQL 모드)와 문법이 갈려 **테스트에서 검증이 안 된다** |
-| **바깥 트랜잭션 없음 + 쓰기만 `REQUIRES_NEW` + `DuplicateKeyException` catch** | ✅ **채택** | auth 와 같은 구조. **호출마다 새 스냅샷**이라 정합성이 격리 수준에 의존하지 않는다 |
+| **바깥 트랜잭션 없음 + 쓰기만 `REQUIRES_NEW` + UNIQUE 위반만 catch** | ✅ **채택** | auth 와 같은 구조. **호출마다 새 스냅샷**이라 정합성이 격리 수준에 의존하지 않는다 |
 
-> **auth 와 다른 점 하나**: 잡는 예외를 `DataIntegrityViolationException` 이 아니라
-> **`DuplicateKeyException`(Spring 표준 변환, H2·MySQL 동일)** 으로 좁힌다.
-> auth-design **§12-5 가 남긴 권고를 처음부터 반영**한 것이다 — 넓게 잡으면 NOT NULL 위반·길이 초과가
-> 경쟁 처리 분기로 흘러들어 **재조회가 비고 단서 없는 500** 이 난다.
-> payment 는 컬럼이 auth 보다 많아 그 위험이 더 크다.
+> **auth 와 다른 점 하나**: 예외를 UNIQUE 위반으로 **좁힌다** — auth-design §12-5 권고의 반영.
+> 넓게 잡으면 NOT NULL 위반·길이 초과가 경쟁 처리 분기로 흘러들어 **재조회가 비고 단서 없는 500** 이 난다.
+>
+> ⚠️ **(구현 라운드 1 실측 정정)** 초안의 *"`DuplicateKeyException` 으로 좁힌다(Spring 표준 변환)"* 는
+> **반증됐다** — JPA(Hibernate) 경로에서 UNIQUE 위반은 `DuplicateKeyException` 으로 변환되지 않고
+> `DataIntegrityViolationException` 으로만 온다. 그대로 두면 catch 가 영원히 안 잡혀
+> **C1 경쟁 패자·복원 재전송이 전부 500** 이었다(라운드 1 테스트가 실물로 잡음).
+> **실구현**: `DataIntegrityViolationException` 을 잡되 **원인 체인의 Hibernate
+> `ConstraintViolationException.getKind() == UNIQUE`** 일 때만 경쟁 분기로 — 좁히기의 의도는 유지된다.
+> NOT NULL·길이 초과가 원본 그대로 나가는 것은 음성 테스트 2본이 고정한다.
+> 🟡 **잔존 위험**: `kind == UNIQUE` 매핑의 실측이 H2 뿐이다. **MySQL(1062)에서 중복 INSERT 1회
+> 스모크로 실증**해야 한다 → §11 배포 전 실측 항목.
 
 ### 6-4. 대안 비교와 채택 — C3(잔량 차감)
 
@@ -585,15 +600,20 @@ transition(id, to): int                     -- 같은 방식의 조건부 UPDATE
 **C2(잔량 행 생성 경쟁)** — 같은 사용자의 첫 두 주문이 동시에 오면 `CreditBalance` insert 가 겹친다.
 
 ```
-증가(userId):
-  1. incrementIfExists(userId)  -- UPDATE ... SET balance = balance + 1 WHERE userId = ?
-     1행 → 끝
-  2. 0행 → insert(userId, 1)
-     DuplicateKeyException → 경쟁자가 방금 만들었다 → 1 을 다시 시도 (반드시 1행)
+grant 의 C2 처리 (PaymentService — 트랜잭션 밖):          -- (구현 정정: 재시도 위치)
+  1. grantWriter.grant(...)                               -- REQUIRES_NEW ①
+     ① 안: incrementIfExists → 0행이면 insert
+     insert 가 UNIQUE(user_id) 위반 → ① 전체가 롤백되고 예외가 밖으로
+  2. catch UNIQUE 위반(잔량 행) → grantWriter.grant(...)  -- 새 REQUIRES_NEW ② 로 전체 1회 재호출
+     ② 의 incrementIfExists 는 반드시 1행 (경쟁자가 커밋한 행이 보인다)
 ```
 
-- **재시도는 정확히 1회다.** 행은 한 번만 생기므로 두 번째 `incrementIfExists` 는 반드시 성공한다.
-  루프를 돌지 않는다 — 무한 루프 가능성을 원천 제거한다.
+- ⚠️ **(구현 정정)** 초안 의사코드는 증가 헬퍼 **안에서** insert 실패를 잡고 increment 를 재시도했지만,
+  그건 **함정 ②(rollback-only) 와 모순**이다 — 같은 트랜잭션 안이라 살릴 수 없다.
+  **실구현이 맞다**: `PaymentService` 가 **writer 전체를 새 REQUIRES_NEW 로 정확히 1회 재호출**한다.
+  주문 원장 insert 는 ① 에서 롤백됐으므로 ② 가 다시 수행해도 멱등이 깨지지 않고, **원자성(§6-5)도 유지**된다.
+- **재시도는 정확히 1회다.** 행은 한 번만 생기므로 ② 의 `incrementIfExists` 는 반드시 성공한다.
+  루프를 돌지 않는다. ② 마저 실패하면 안전망 500 — 도달 불가 방어선으로 §10 에 근거를 남겼다.
 
 **C5(웹훅 순서)** — `occurredAt` 비교로 무시한다. 락이 필요 없다. 같은 구독에 대한 웹훅은
 토스가 순차 발송한다고 가정하지 않으며, **과거 이벤트를 버리는 것만으로 되감김이 막힌다.**
@@ -636,7 +656,8 @@ auth 는 단일 행 삽입이라 감쌀 원자성이 없었지만, **payment 는
 
 - **④ 가 반드시 행을 찾는 근거**: InnoDB 는 중복 키 삽입 시 상대 트랜잭션이 끝날 때까지 대기시킨다.
   ③ 이 위반을 받았다는 것은 **경쟁자가 이미 커밋했다**는 뜻이므로, 새 트랜잭션인 ④ 는 그 행을 반드시 본다.
-- ⚠️ **이 근거는 `DuplicateKeyException` 일 때만 참이다.** §6-3 에서 예외를 좁힌 이유가 이것이다.
+- ⚠️ **이 근거는 UNIQUE 위반일 때만 참이다**(§6-3 실측 정정 반영 — 판별은 원인 체인의
+  `ConstraintViolationException.getKind()`). §6-3 에서 예외를 좁힌 이유가 이것이다.
 - ⚠️ **`GrantWriter` 는 `AuthService` 를 주입받지 않는다.** `register` 를 REQUIRES_NEW 안에서 부르면
   auth-design §6-4 의 전제(트랜잭션 밖 호출)가 깨져 **함정 ④가 auth 쪽에서 되살아난다.**
   `UserId` 해석은 컨트롤러에서 끝났고(§2-1 쟁점 1), 여기는 이미 해석된 값만 받는다 — §10 이 감시한다.
@@ -808,7 +829,8 @@ main 브랜치 docs/api/index.html   ← 프론트가 읽는 유일한 창구
 - ❗ **403 이 두 종류다.** `PAY_001`(결제 유도) vs `PAY_007`(recheck 유도) — 프론트 행동이 정반대다.
   `AUTH_003`(403)은 쓰지 않는다(payment.md §7).
 - ⚠️ **`BusinessException` 메시지에 `orderId` 를 넣지 않는다**(U14). 진단이 필요하면
-  `AnonymousKeyFormat.mask()` 와 같은 방식으로 앞 4자만 남긴다.
+  **payment 자체의 `OrderIdMask.mask()`**(앞 4자)를 쓴다 — `AnonymousKeyFormat.mask` 재사용은
+  코드 리뷰 🟡-2 로 기각됐다(익명키 정책과의 결합. 정책의 주인이 다르다).
 - 네이밍은 [error-handling.md](../rule/error-handling.md).
 
 ---
@@ -886,8 +908,9 @@ main 브랜치 docs/api/index.html   ← 프론트가 읽는 유일한 창구
       🔴 **§8-1 의 K1~K20 이 본문에 전부 들어갔는지 표로 대조한다.** 스니펫이 없는 두 절
       (§미결 주문 복원 · §이용 게이트)도 반드시 쓴다 — **빠지면 프론트에게는 없는 계약이다**
 - [ ] `docs(rule)`: `toss-integration.md` 잔여분(단건 흐름 추가·구독 조회 API 부재 명시) · `CLAUDE.md` 1건 정정 (§7)
-- [ ] `./gradlew test --tests "*ModularityTest"` — 모듈 경계 통과
-- [ ] **변경 파일 라인 커버리지 100% 확인** → `/code-review`
+- [x] `./gradlew test --tests "*ModularityTest"` — 모듈 경계 통과 (라운드 2)
+- [x] **변경 파일 라인 커버리지 100% 확인** → `/code-review` (LINE 98.7 전역 · 미달은 도달 불가 방어선 2곳, §10 근거)
+- [ ] 🟡 **배포 전 실측**: MySQL 스테이징에서 중복 INSERT 1회 스모크 — `ConstraintViolationException.getKind() == UNIQUE` 실증(§6-3 잔존 위험. H2 만 실측된 상태)
 - [ ] `/docs-sync` — **이번엔 스니펫이 실제로 생긴다**(auth 와 다르다)
 
 ---
@@ -940,6 +963,13 @@ payment.md 가 제시한 후보 3개 중 **설계 관점의 판단**을 덧붙�
 
 **결정 (2026-08-11, `/implement` 시점 사용자 선택)**: **"일단 그대로 신뢰"** —
 payment.md §4-7-1⑧ⓐ 그대로 구현하고 **출시 전에 재결정**한다. 위 후보 비교표는 그때를 위해 남긴다.
+
+**출시 전 재결정 목록 (이 항목과 함께 본다)**
+
+| # | 사실 | 영향 |
+|---|---|---|
+| ⓐ | recheck 클라 값 신뢰 (위) | 결제 없이 구독 개방 가능 |
+| ⓑ | **(코드 리뷰 발견)** `UNIQUE(user_id)` 가 **만료·회수된 구독 행도 막는다** — §3 의 전제("활성 구독은 하나")보다 제약 범위가 넓다 | **이탈 후 재구독 사용자가 결제 성사 뒤(`PURCHASED`) `PAY_003` 을 받고 환불 수단이 없다**(§4-8). MVP 는 첫 구독만 겪지만 **첫 만료가 발생하는 30일 안에** 재구독 처리(기존 행 갱신 or 제약 완화)를 정해야 한다 |
 
 ### 12-4. `expiresAt` 의 직렬화 형식 — auth-design §12-3 이 미룬 결정이 여기서 실제로 문제가 된다
 
