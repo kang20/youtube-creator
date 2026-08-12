@@ -15,8 +15,7 @@
     auth    : d2d5e26 · 2026-08-13
     payment : (미작성 — /domain-model payment 로 추가)
 
-  분리 문서
-    auth : auth-notes.md · auth-state.md · auth-flow.md
+  부연 문서({module}-notes/-state/-flow.md)는 요청 시에만 만든다. 현재 없음.
 -->
 
 ```mermaid
