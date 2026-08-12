@@ -19,11 +19,10 @@ kang20.ytcreator/
 │   └── package-info.java
 └── {module}/                          ← 애플리케이션 모듈 하나 = 도메인 하나
     ├── package-info.java              @ApplicationModule(displayName, allowedDependencies)
-    ├── {Module}Controller.java        HTTP 진입점 — 모듈 안에 둔다
-    ├── {Module}Service.java           모듈 공개 API (다른 모듈이 부를 수 있는 유일한 축)
+    ├── {Module}{책임}Port.java        모듈 공개 계약 — 책임별 포트 인터페이스 (다른 모듈이 부를 수 있는 유일한 축)
     ├── {Module}Event.java             다른 모듈에 알릴 사실 (record)
     ├── dto/                           요청·응답 record
-    └── internal/                      엔티티·리포지토리·구현체 — 모듈 밖 접근 금지
+    └── internal/                      구현 전부 — 모듈 밖 접근 금지 (→ "모듈 내부 레이아웃")
 ```
 
 **핵심 규칙은 하나뿐이다: 모듈 루트 패키지의 public 타입만 외부에 보인다.**
@@ -35,19 +34,53 @@ kang20.ytcreator/
 
 ```
 {module}/internal/
-├── entity/       엔티티 + 상태 enum
-├── repository/   Spring Data 리포지토리
-├── writer/       트랜잭션 쓰기 빈 (REQUIRES_NEW 경계 등 — 프록시 때문에 별도 빈인 것들)
-├── client/       외부 시스템 접점 (HTTP 클라이언트·응답 매핑)
-└── support/      정책·인증·마스킹·설정 바인딩
+├── {Util}.java              (드묾) 레이어 안 가리는 모듈 내부 공용 유틸 — 예: OrderIdMask(로그 마스킹).
+│                            service·handler 양쪽이 쓰면 support 가 아니다(support 는 Service 전용이므로).
+├── entity/                  엔티티 + 상태 enum
+├── handler/                 입출력 어댑터 — 방향으로 자른다
+│   ├── inbound/             밖에서 들어오는 요청을 받는 쪽 — 컨트롤러 등
+│   └── outbound/            우리가 밖을 부르는 쪽
+│       ├── repository/      Spring Data 리포지토리 (DB 호출)
+│       └── client/          외부 시스템 접점 (HTTP 클라이언트·응답 매핑)
+└── service/                 오케스트레이션
+    ├── {Module}Service.java 포트 구현 — 레이어를 엮는 유일한 본체
+    └── support/             @Support 부품 — 정책·인증·마스킹·설정 바인딩·트랜잭션 쓰기 빈. Service 만 참조
 ```
 
 - ⚠️ **"왜 Modulith 인가"의 레이어 비판과 모순이 아니다** — 그 비판은 **프로젝트 최상위**를
   레이어로 잘라 모듈(기능) 경계가 사라지는 구조를 향한 것이다. 여기서는 **모듈 경계가 최상위**이고
   레이어는 모듈 **안쪽** 정리 방식이다. `internal/` 하위는 몇 단계든 전부 모듈 내부라
   `verify()`·`allowedDependencies` 에 영향이 없다.
-- 필요한 레이어만 만든다 — 파일 2~3개짜리 모듈(auth·bootstrap)은 평면 유지가 맞다.
-- 서브패키지 간 참조는 자유다(전부 내부). 단 **다른 모듈에서 보이는 것은 여전히 모듈 루트뿐**이다.
+- 서브패키지 간 참조는 규약(아래)이 정한 방향만 허용한다. 단 **다른 모듈에서 보이는 것은 여전히 모듈 루트뿐**이다.
+
+### Port·Service·Support 규약 (2026-08-12 채택 — 모든 도메인 모듈 강제)
+
+Modulith 는 "다른 모듈이 `internal` 을 참조하는가"만 본다. 그 **아래의 모듈 내부 레이아웃**은
+아래 규약으로 세우고, **`ArchitectureConventionTest` 가 소스 스캔으로 강제**한다(source of truth).
+대상은 **도메인 모듈**(= `internal/service` 를 가진 모듈: auth·payment). `shared`·`config`(OPEN 공용)와
+`bootstrap`(저장소 없는 집계 어댑터)은 예외다.
+
+1. **공개 계약은 `*Port` 인터페이스뿐이다.** 모듈 루트에는 **책임별 포트**(`{Module}{책임}Port` —
+   `PaymentReaderPort`·`PaymentConsumePort`·`PaymentPurchasePort`·`PaymentWebhookPort`, `AuthPort`)와
+   타입 ID 만 둔다. 네이밍만으로 "공개 인터페이스이며 어떤 책임인지"가 드러난다.
+   포트는 **소비자·책임 단위**로 자른다 — 한 포트에 모든 메서드를 몰면 "누가 무엇을 쓰는가"가 흐려진다.
+2. **`{Module}Service` 는 `internal/service` 직속의 유일한 클래스**이고, 그 포트들을 `implements` 한다.
+   HTTP 전용 흐름(컨트롤러만 부르는 메서드)도 포트에 얹어 노출하되, 그 포트의 실질 소비자는
+   이 모듈의 컨트롤러다(inbound driving port).
+3. **구체 `*Service` 는 아무도 직접 참조하지 않는다** — 밖(다른 모듈)도, 안(컨트롤러)도 **포트로만** 부른다.
+   Boot 기본이 CGLIB(클래스 프록시)라 포트가 있어도 `@Transactional` 프록시 빈이 정상 주입된다.
+4. **`internal/service` 밑에서 Service 를 뺀 나머지는 전부 `support/` 로 내리고 `@Support` 를 단다.**
+   `@Support`({@code shared/support}) 의 계약은 하나다: **같은 모듈의 `*Service` 만 support 를 참조한다.**
+   컨트롤러·리포지토리·엔티티·다른 support 는 support 를 못 부른다 — 오케스트레이션의 단일 주인은 Service 다.
+5. **컨트롤러는 `internal/handler/inbound/` 에 두고, `internal/service` 를 직접 참조하지 않는다** —
+   포트(모듈 루트)로만 부른다. 컴포넌트 스캔은 패키지와 무관해 매핑·REST Docs 산출물에 영향이 없다.
+6. **레이어를 안 가리는 모듈 내부 공용 유틸**(예: `OrderIdMask` — service·client 양쪽이 쓰는 로그 마스킹)은
+   support 가 아니다(support 는 Service 전용). `internal/` 루트의 평범한 클래스로 둔다.
+
+- ⚠️ 포트 분리는 **외부 소비자의 표면이 구현의 public 표면보다 실제로 작을 때만** 정당하다.
+  소비자가 없거나 표면이 같다면 굳이 포트를 나누지 말고 최소 하나만 둔다(과한 추상화 금지).
+- `bootstrap` 은 저장소·서비스가 없는 **집계 어댑터**라 이 규약에서 빠진다 — 컨트롤러가 다른 모듈의
+  포트(`AuthPort`·`PaymentReaderPort`)를 조립할 뿐이다.
 
 ## 모듈 간 통신 — 이벤트가 기본
 
@@ -127,7 +160,9 @@ private UsageTicketId id;
 | `@ManyToOne` 이 없으므로 DB FK 가 자동 생성되지 않는다 | **물리 FK 를 걸지 않는 것이 기본**(모듈 자율성·삭제 순서 자유). 무결성은 UNIQUE 제약이 담당하고, 참조 관계는 수동 DDL 주석으로 표기 |
 | JPQL 집계의 그룹 키가 타입 ID 로 돌아온다 | 리포지토리 javadoc 에 결과 타입 명시 |
 
-## 구조 검증 테스트 (필수 — 모든 프로젝트에 1개)
+## 구조 검증 테스트 (필수 — 두 층)
+
+**① 모듈 경계 — `ModularityTest`** (Modulith `verify()`)
 
 ```java
 class ModularityTest {
@@ -150,22 +185,41 @@ class ModularityTest {
 ```
 
 - `verify()` 가 잡는 것: 순환 의존, `internal` 접근, `allowedDependencies` 위반, 모듈 미선언 패키지.
-- 이 테스트는 **CI 필수**다. 배포 워크플로의 `./gradlew test` 에 이미 포함된다.
+
+**② 모듈 내부 레이아웃 — `ArchitectureConventionTest`** (소스 스캔)
+
+`verify()` 는 **모듈 경계까지**만 본다. 그 아래 "Port·Service·Support 규약"(위)은 이 테스트가 강제한다.
+도메인 모듈(= `internal/service` 보유)에 대해 소스 import 를 스캔해 R1~R6 을 단언한다:
+
+| 규칙 | 잡는 것 |
+|---|---|
+| R1 | 모듈 루트에 공개 `*Port` 가 있다 |
+| R2 | `internal/service` 직속 = `*Service` 하나, 그것은 `*Port` 를 구현한다 |
+| R3 | `service/support` 타입은 전부 `@Support`, `@Support` 는 거기에만 |
+| R4 | `@Support` 는 같은 모듈 `*Service` 만 참조한다 |
+| R5 | `handler`(컨트롤러 등)는 `internal/service` 를 직접 참조하지 않는다 — 포트로만 |
+| R6 | 구체 `*Service` 는 자기 패키지 밖에서 참조되지 않는다 |
+
+- 두 테스트 모두 **CI 필수**다. 배포 워크플로의 `./gradlew test` 에 포함된다.
 - 런타임 확인: `/actuator/modulith` (외부에는 Caddy 가 403 으로 막는다).
 
 ## 새 모듈 추가 시 만드는 파일
 
 ```
 {name}/package-info.java
-{name}/{Name}Controller.java
-{name}/{Name}Service.java
+{name}/{Name}{책임}Port.java                       (공개 계약 — 책임별 포트. R1)
 {name}/dto/
-{name}/internal/{Name}.java            (엔티티)
-{name}/internal/{Name}Repository.java
-src/test/.../{name}/{Name}ControllerTest.java     (REST Docs)
+{name}/internal/service/{Name}Service.java        (포트 구현 — service 직속 유일. R2)
+{name}/internal/service/support/*.java            (@Support 부품 — Service 만 참조. R3·R4)
+{name}/internal/handler/inbound/{Name}Controller.java   (HTTP 어댑터 — 포트로만 부른다. R5)
+{name}/internal/handler/outbound/repository/{Name}Repository.java
+{name}/internal/entity/{Name}.java
+src/test/.../{name}/{Name}ControllerTest.java     (REST Docs — 포트를 @MockitoBean)
 src/test/.../{name}/{Name}ModuleTest.java         (@ApplicationModuleTest)
 src/docs/asciidoc/{name}.adoc
 ```
+
+`ArchitectureConventionTest`(R1~R6)가 이 골격을 강제한다 — 새 모듈도 자동으로 규약에 걸린다.
 
 설계 문서(`docs/domain/{name}.md` + `{name}-design.md`)를 `/b-usecase` → `/b-develop-design` 으로
 **먼저** 만들고, 골격은 설계서 §4 모듈 매핑대로 구현 첫 커밋에서 직접 만든다.

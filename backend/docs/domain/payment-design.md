@@ -61,8 +61,8 @@
 | `shared` | 사용 (OPEN) | 자유 참조. `BaseTimeEntity`·`ErrorCode`·`BusinessException`·**타입 ID 공통 부모(`shared/domain`)** |
 | `config` | 역방향 참조당함 | `SecurityConfig` 가 공개 경로에 웹훅·상품 경로를 연다. **`config` → `payment` 의존은 만들지 않는다** |
 | `auth` | **사용** — `allowedDependencies` 명시 | ⓐ **`UserId` 타입 참조**(FK 컬럼·시그니처) ⓑ 컨트롤러가 `AuthService.register` 로 익명키→`UserId` 해석(멱등·자동 등록). **`auth/internal` 은 여전히 불가** — 근거 §2-1 쟁점 1 |
-| `bootstrap` | **참조당함** | `bootstrap` → `payment` 단방향. `PaymentService` 직접 호출 |
-| `subtitle` (미존재) | **참조당함(예정)** | `subtitle` → `payment` 단방향. 소모 API 를 `UserId`·`UsageTicketId` 로 호출한다. **payment 는 subtitle 을 영원히 모른다** |
+| `bootstrap` | **참조당함** | `bootstrap` → `payment` 단방향. `PaymentReaderPort` 직접 호출 |
+| `subtitle` (미존재) | **참조당함(예정)** | `subtitle` → `payment` 단방향. `PaymentConsumePort` 를 `UserId`·`UsageTicketId` 로 호출한다. **payment 는 subtitle 을 영원히 모른다** |
 
 - **이벤트를 발행하지 않는다.** [architecture.md](../rule/architecture.md) 는 이벤트를 우선하지만,
   MVP 에 `EntitlementGranted`·`SubscriptionRevoked` 를 구독할 모듈이 **하나도 없다.**
@@ -164,7 +164,7 @@ PaymentWebhookController → WebhookAuthenticator.verify(Authorization 헤더)
 POST /api/v1/bootstrap
    └─▶ bootstrap (allowedDependencies = { shared, auth, payment })
           ├─▶ AuthService.register(anonymousKey)       → newUser, registeredAt, userId
-          └─▶ PaymentService.entitlementOf(userId)     → 이용권 상태   ← auth 해석 결과를 그대로 넘긴다
+          └─▶ PaymentReaderPort.entitlementOf(userId)     → 이용권 상태   ← auth 해석 결과를 그대로 넘긴다
 ```
 
 - **auth 왕복은 1회로 끝난다** — `register` 가 돌려준 `UserId` 를 payment 에 넘기므로
@@ -270,37 +270,66 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 규칙: [architecture.md](../rule/architecture.md) "모듈 내부 레이아웃").
 모듈 **경계**는 그대로다 — `internal/` 하위는 몇 단계든 전부 모듈 내부라 `verify()` 에 영향이 없다.
 
+**Port·Service·Support 규약** (2026-08-12 사용자 결정 — 전 도메인 모듈 강제,
+[architecture.md](../rule/architecture.md) "Port·Service·Support 규약". `ArchitectureConventionTest` R1~R6 이 강제).
+모듈 간 공개 계약은 루트의 **책임별 `*Port` 인터페이스**로만 노출한다 — 네이밍만으로
+"공개 인터페이스이며 어떤 책임인지"가 드러난다. HTTP 전용 흐름도 포트로 노출하되(inbound driving port)
+실질 소비자는 이 모듈의 컨트롤러다:
+
+- **`PaymentReaderPort`** — 조회(`entitlementOf`·`products`). 소비자: bootstrap·자기 컨트롤러.
+- **`PaymentConsumePort`** — 소모(`reserve`·`commit`·`release`). 소비자: subtitle(§4 확정 계약).
+- **`PaymentPurchasePort`** — 구매(`grant`·`recheck`). 소비자: 자기 결제 컨트롤러.
+- **`PaymentWebhookPort`** — 웹훅(`handleWebhook`). 소비자: 자기 웹훅 컨트롤러.
+
+구현체(`internal/service/PaymentService`)가 이 **네 포트를 구현**하며 **누구도 직접 참조하지 않는다** —
+컨트롤러조차 포트로만 부른다. `internal/` 은 **handler(입출력 어댑터) / service(오케스트레이션) / entity** 로
+자른다 — inbound 는 밖에서 들어오는 요청(컨트롤러), outbound 는 우리가 밖(DB·토스)을 부르는 쪽이다.
+`service/support` 는 **`@Support` 부품**이라 Service 만 참조한다. 컴포넌트 스캔은 패키지와 무관하므로
+매핑·REST Docs 산출물 변화는 없다.
+
 ```
 payment/
-├── PaymentService · 컨트롤러 2 · UsageTicketId(·JavaType)   ← 루트 (Modulith 노출 규칙상 고정)
-├── dto/                                                     ← @NamedInterface("dto")
+├── PaymentReaderPort · PaymentConsumePort · PaymentPurchasePort · PaymentWebhookPort   ← 루트 = 공개 계약
+├── UsageTicketId(·JavaType)
+├── dto/                                                                                ← @NamedInterface("dto")
 └── internal/
-    ├── entity/       엔티티 4 + 상태 enum 2
-    ├── repository/   리포지토리 4
-    ├── writer/       GrantWriter · SubscriptionApplyWriter   (트랜잭션 쓰기 빈)
-    ├── client/       TossOrderClient · TossOrderStatus       (외부 접점 — ✅-11 격리)
-    └── support/      SubscriptionGate · WebhookAuthenticator · OrderIdMask · ProductCatalogProperties
+    ├── OrderIdMask.java       로그 마스킹 — service·client 양쪽이 쓰는 모듈 내부 공용 유틸(§9). @Support 아님
+    ├── entity/                엔티티 4 + 상태 enum 2
+    ├── handler/
+    │   ├── inbound/           PaymentController · PaymentWebhookController   (들어오는 요청 — 포트로만 부른다)
+    │   └── outbound/
+    │       ├── repository/    리포지토리 4                                    (DB 호출)
+    │       └── client/        TossOrderClient · TossOrderStatus               (토스 호출 — ✅-11 격리)
+    └── service/
+        ├── PaymentService.java          포트 4개 구현 + HTTP 전용 흐름 (유일한 오케스트레이터)
+        └── support/           @Support — GrantWriter · SubscriptionApplyWriter(쓰기 빈 REQUIRES_NEW §6-5) ·
+                               SubscriptionGate · WebhookAuthenticator · ProductCatalogProperties. Service 만 참조
 ```
 
 | 위치 | 산출물 | 공개 여부 |
 |---|---|---|
 | `payment/package-info.java` | `@ApplicationModule(displayName="결제·이용권", allowedDependencies={"shared", "auth", "auth :: dto"})` — auth 의존의 실체는 `UserId` 참조 + 컨트롤러의 `register` 호출(§2-1 쟁점 1). **(구현 정정)** `Registration` 이 `auth/dto` 에 있어 `@NamedInterface("dto")` 참조가 추가로 필요하다 — Modulith 는 하위 패키지를 자동 노출하지 않는다 | — |
 | `auth/dto/package-info.java` · `payment/dto/package-info.java` | **(구현 정정 — 신설)** `@NamedInterface("dto")` — dto 를 다른 모듈이 참조하려면 명시 선언 필요. `bootstrap` 은 `{"shared","auth","auth :: dto","payment","payment :: dto"}` | — |
-| `payment/PaymentService.java` | 모듈 공개 API — 지급·조회·소모·재확인. **사용자 단위 메서드는 전부 `UserId` 를 받는다** | **public (모듈 밖 유일 진입)** |
+| `payment/PaymentReaderPort.java` | 공개 **조회 포트** — `products`·`entitlementOf`. 소비자: bootstrap·자기 컨트롤러. **사용자 단위 메서드는 `UserId` 를 받는다** | **public (모듈 공개 계약)** |
+| `payment/PaymentConsumePort.java` | 공개 **소모 포트** — `reserve`·`commit`·`release`. 소비자: subtitle(계약 선확정) | **public (모듈 공개 계약)** |
+| `payment/PaymentPurchasePort.java` | 공개 **구매 포트** — `grant`·`recheck`. 소비자: 자기 결제 컨트롤러(inbound driving) | **public (모듈 공개 계약)** |
+| `payment/PaymentWebhookPort.java` | 공개 **웹훅 포트** — `handleWebhook`. 소비자: 자기 웹훅 컨트롤러(inbound driving) | **public (모듈 공개 계약)** |
 | `payment/UsageTicketId.java` | **타입화된 티켓 PK** — `final class extends LongTypeIdentifier`. subtitle 이 쓸 유일한 payment 식별자 | **public (모듈 루트)** |
 | `payment/UsageTicketIdJavaType.java` | Hibernate 매핑 어댑터 | public |
-| `payment/PaymentController.java` | `products` · `grant` · `entitlement` · `recheck`. **`AuthService.register` 로 익명키→`UserId` 해석(모듈 내 유일 지점)** | public |
-| `payment/PaymentWebhookController.java` | 웹훅 수신 (게이트 밖 — §2-1 쟁점 3) | public |
+| `payment/internal/service/PaymentService.java` | **포트 4개 구현** + HTTP 전용 흐름 — 유일한 오케스트레이터. 누구도 직접 참조 못 함(포트로만) | 모듈 밖 참조 불가 |
+| `payment/internal/OrderIdMask.java` | 로그 마스킹(U14·§9) — service·client 양쪽이 쓰는 **모듈 내부 공용 유틸**(support 아님) | 모듈 밖 참조 불가 |
+| `payment/internal/handler/inbound/PaymentController.java` | `products` · `grant` · `entitlement` · `recheck`. **`AuthPort.register` 로 익명키→`UserId` 해석(모듈 내 유일 지점)**. Reader·Purchase 포트만 주입 | 모듈 밖 참조 불가 (진입은 HTTP) |
+| `payment/internal/handler/inbound/PaymentWebhookController.java` | 웹훅 수신 (게이트 밖 — §2-1 쟁점 3). Webhook 포트만 주입 | 모듈 밖 참조 불가 (진입은 HTTP) |
 | `payment/dto/` | `ProductCatalog` · `EntitlementView` · `GrantResult` · `UsageTicketView` · 요청 record | public |
 | `payment/internal/entity/` | 엔티티 4 + 상태 enum 2 (`SubscriptionStatus`·`TicketStatus`) | 모듈 밖 참조 불가 |
-| `payment/internal/repository/` | 리포지토리 4개 | 모듈 밖 참조 불가 |
-| `payment/internal/writer/GrantWriter.java` | **`@Transactional(REQUIRES_NEW)`** 지급 쓰기. **별도 빈이어야 하는 이유는 §6-5** | 모듈 밖 참조 불가 |
-| `payment/internal/writer/SubscriptionApplyWriter.java` | **`@Transactional`** 구독 반영 쓰기 — 웹훅 `apply`(§5-4) · recheck `applyFromClient`(§5-5). **별도 빈인 이유는 `GrantWriter` 와 같다** — `PaymentService` 안에서 자기 호출하면 프록시를 우회해 트랜잭션이 안 걸린다 | 모듈 밖 참조 불가 |
-| `payment/internal/client/TossOrderClient.java` | 토스 `get-order-status` 호출 (mTLS) | 모듈 밖 참조 불가 |
-| `payment/internal/client/TossOrderStatus.java` | 토스 응답 8종 + `resultType` 봉투 → 우리 판정 매핑 | 모듈 밖 참조 불가 |
-| `payment/internal/support/WebhookAuthenticator.java` | Basic Auth 검증 (U11) | 모듈 밖 참조 불가 |
-| `payment/internal/support/SubscriptionGate.java` | `status` + `expiresAt` + STALE → `accessible` 판정(§4-3·§4-7-1) | 모듈 밖 참조 불가 |
-| `payment/internal/support/ProductCatalogProperties.java` | `sku` 설정 바인딩 (`@ConfigurationProperties`) | 모듈 밖 참조 불가 |
+| `payment/internal/handler/outbound/repository/` | 리포지토리 4개 | 모듈 밖 참조 불가 |
+| `payment/internal/service/support/GrantWriter.java` | **`@Support` · `@Transactional(REQUIRES_NEW)`** 지급 쓰기. **별도 빈이어야 하는 이유는 §6-5** | 모듈 밖 참조 불가 |
+| `payment/internal/service/support/SubscriptionApplyWriter.java` | **`@Support` · `@Transactional`** 구독 반영 쓰기 — 웹훅 `apply`(§5-4) · recheck `applyFromClient`(§5-5). **별도 빈인 이유는 `GrantWriter` 와 같다** | 모듈 밖 참조 불가 |
+| `payment/internal/handler/outbound/client/TossOrderClient.java` | 토스 `get-order-status` 호출 (mTLS) | 모듈 밖 참조 불가 |
+| `payment/internal/handler/outbound/client/TossOrderStatus.java` | 토스 응답 8종 + `resultType` 봉투 → 우리 판정 매핑 | 모듈 밖 참조 불가 |
+| `payment/internal/service/support/WebhookAuthenticator.java` | **`@Support`** Basic Auth 검증 (U11) | 모듈 밖 참조 불가 |
+| `payment/internal/service/support/SubscriptionGate.java` | **`@Support`** `status` + `expiresAt` + STALE → `accessible` 판정(§4-3·§4-7-1) | 모듈 밖 참조 불가 |
+| `payment/internal/service/support/ProductCatalogProperties.java` | **`@Support`** `sku` 설정 바인딩 (`@ConfigurationProperties`) | 모듈 밖 참조 불가 |
 | `bootstrap/package-info.java` | `@ApplicationModule(displayName="진입", allowedDependencies={"shared","auth","payment"})` | — |
 | `bootstrap/BootstrapController.java` | `POST /api/v1/bootstrap` | public |
 | `bootstrap/dto/BootstrapResponse.java` | `record(newUser, registeredAt, entitlement)` — ⚠️ **`userId` 를 싣지 않는다**(§2-2) | public |
@@ -314,25 +343,33 @@ payment/
 **시그니처 수준**
 
 ```
-PaymentService                                     -- payment 밖에서 부를 수 있는 전부. 익명키를 받지 않는다
-  ProductCatalog products()                        -- U1. 설정에서 읽는다. DB 를 보지 않는다
-  GrantResult    grant(UserId userId, String orderId)    -- U2·U3·U4. ⚠️ @Transactional 없음(§6-2)
-  EntitlementView entitlementOf(UserId userId)     -- U5. 읽기 전용. 토스를 부르지 않는다
-  EntitlementView recheck(UserId userId, SubscriptionSnapshot fromClient)  -- §4-7-1⑥
+PaymentReaderPort (공개 포트)                        -- 조회 계약. 익명키를 받지 않는다
+  ProductCatalog  products()                       -- U1. 설정에서 읽는다. DB 를 보지 않는다
+  EntitlementView entitlementOf(UserId userId)     -- U5. 읽기 전용. 토스를 부르지 않는다 (bootstrap 도 쓴다)
+
+PaymentConsumePort (공개 포트)                       -- 소모 계약 (subtitle 이 쓸 계약 — 선확정)
   UsageTicketView reserve(UserId userId)           -- U6·U7. 없으면 BusinessException(PAY_001)
   void            commit(UsageTicketId ticketId)   -- 작업 성공
   void            release(UsageTicketId ticketId)  -- U8. 작업 실패 → 되돌린다
+
+PaymentPurchasePort (공개 포트)                      -- 구매 계약 (자기 결제 컨트롤러가 부른다)
+  GrantResult     grant(UserId userId, String orderId)    -- U2·U3·U4. ⚠️ @Transactional 없음(§6-2)
+  EntitlementView recheck(UserId userId, SubscriptionSnapshot fromClient)  -- §4-7-1⑥
+
+PaymentWebhookPort (공개 포트)                       -- 웹훅 계약 (자기 웹훅 컨트롤러가 부른다)
   void            handleWebhook(String authHeader, WebhookEvent event)  -- U9·U10·U11 (익명키 무관)
 
-PaymentController                                  -- 익명키가 payment 에 들어오는 유일한 지점
-  userId = authService.register(anonKey).userId()  -- 멱등·자동 등록. ⚠️ 트랜잭션 밖(auth-design §6-4)
-  → PaymentService.{grant|entitlementOf|recheck}(userId, ...)
+PaymentService (internal/service)                   -- 위 네 포트를 구현. 누구도 직접 참조 못 함(포트로만)
+
+PaymentController (internal/handler/inbound)        -- 익명키가 payment 에 들어오는 유일한 지점
+  userId = authPort.register(anonKey).userId()     -- 멱등·자동 등록. ⚠️ 트랜잭션 밖(auth-design §6-4)
+  → readerPort.{products|entitlementOf} · purchasePort.{grant|recheck}
 
 GrantWriter                                        -- internal. PaymentService 와 반드시 다른 빈(§6-5)
   PaymentOrder grant(UserId userId, String orderId, String sku, ProductType type, LocalDateTime now)
                                                    -- @Transactional(REQUIRES_NEW)
                                                    -- 주문 원장 + (횟수권 +1 | 기간권 생성) 을 한 트랜잭션에
-                                                   -- ⚠️ AuthService 를 주입받지 않는다 — §6-5·§10 감시
+                                                   -- ⚠️ AuthPort 를 주입받지 않는다 — §6-5·§10 감시
 
 TossOrderClient                                    -- internal. ✅-11 격리 지점(§2-1·§12-2)
   TossOrderStatus statusOf(String orderId)         -- mTLS. 트랜잭션 밖에서만 호출된다
@@ -342,8 +379,9 @@ SubscriptionGate                                   -- 순수 함수. 상태 없�
   boolean stale(Subscription s, LocalDateTime now)        -- §4-7-1③
 ```
 
-- **`PaymentService` 가 모듈 루트의 유일한 서비스 타입**이다. 엔티티·리포지토리·토스 클라이언트는
-  `internal/` 이라 Modulith 가 외부 참조를 차단한다.
+- **모듈 루트에는 포트 4개와 타입 ID 뿐**이다. 구현체·컨트롤러·엔티티·리포지토리·토스 클라이언트는
+  전부 `internal/` 이라 Modulith 가 외부 참조를 차단하고, 그 안쪽 규약은 `ArchitectureConventionTest`
+  R1~R6 이 강제한다([architecture.md](../rule/architecture.md) "Port·Service·Support 규약").
 - **`EntitlementView` 는 `orderId` 를 담지 않는다**(U14). 클라는 SDK 로 직접 얻는다(payment.md §5-7).
 - **`reserve()` 는 기간권 사용자에게도 티켓을 발급한다.** `source=SUBSCRIPTION` 이면 차감이 없을 뿐이고,
   호출자(`subtitle`)가 **이용권 종류로 분기하지 않아도 되게** 하기 위해서다. 분기가 호출자로 새면
@@ -876,14 +914,14 @@ main 브랜치 docs/api/index.html   ← 프론트가 읽는 유일한 창구
 
 | 산출물 | 덮는 테스트 | 비고 |
 |---|---|---|
-| `payment/PaymentService.java` | `PaymentGrantTest` + 동시성 2본 + `SubscriptionRecheckTest` + `PaymentConsumeTest` | **catch 분기는 동시성 테스트로만 도달한다** — 목으로 예외를 흉내 내면 §6-5 트랜잭션 경계가 검증되지 않는다 |
-| `payment/internal/writer/SubscriptionApplyWriter.java` | `PaymentWebhookTest` + `SubscriptionRecheckTest` | 웹훅 반영 + 클라 반영. `lastWebhookOccurredAt` 불변 단언이 여기 걸린다 |
-| `payment/internal/writer/GrantWriter.java` | `PaymentGrantTest` + `PaymentGrantConcurrencyTest` | 정상 커밋 + 경쟁 시 롤백 경계 |
-| `payment/internal/client/TossOrderClient.java` | `TossOrderClientTest` | mTLS 조립은 `enabled=false` 로 우회. **조립 자체는 단위 테스트 대상이 아니다** |
-| `payment/internal/client/TossOrderStatus.java` | `PaymentGrantTest` + `TossOrderClientTest` | status 8종 × `resultType` 7종 매핑 전수 |
-| `payment/internal/support/SubscriptionGate.java` | `SubscriptionGateTest` | 경계값 |
-| `payment/internal/support/WebhookAuthenticator.java` | `PaymentWebhookTest` | 일치/불일치/헤더 없음 |
-| `payment/internal/repository/` | 해당 서비스 테스트 | 인터페이스 + `@Modifying` 쿼리는 **동시성 테스트가 실제로 덮는다** |
+| `payment/internal/service/PaymentService.java` | `PaymentGrantTest` + 동시성 2본 + `SubscriptionRecheckTest` + `PaymentConsumeTest` | **catch 분기는 동시성 테스트로만 도달한다** — 목으로 예외를 흉내 내면 §6-5 트랜잭션 경계가 검증되지 않는다 |
+| `payment/internal/service/support/SubscriptionApplyWriter.java` | `PaymentWebhookTest` + `SubscriptionRecheckTest` | 웹훅 반영 + 클라 반영. `lastWebhookOccurredAt` 불변 단언이 여기 걸린다 |
+| `payment/internal/service/support/GrantWriter.java` | `PaymentGrantTest` + `PaymentGrantConcurrencyTest` | 정상 커밋 + 경쟁 시 롤백 경계 |
+| `payment/internal/handler/outbound/client/TossOrderClient.java` | `TossOrderClientTest` | mTLS 조립은 `enabled=false` 로 우회. **조립 자체는 단위 테스트 대상이 아니다** |
+| `payment/internal/handler/outbound/client/TossOrderStatus.java` | `PaymentGrantTest` + `TossOrderClientTest` | status 8종 × `resultType` 7종 매핑 전수 |
+| `payment/internal/service/support/SubscriptionGate.java` | `SubscriptionGateTest` | 경계값 |
+| `payment/internal/service/support/WebhookAuthenticator.java` | `PaymentWebhookTest` | 일치/불일치/헤더 없음 |
+| `payment/internal/handler/outbound/repository/` | 해당 서비스 테스트 | 인터페이스 + `@Modifying` 쿼리는 **동시성 테스트가 실제로 덮는다** |
 | 엔티티 4개 | `PaymentGrantTest` + `PaymentConsumeTest`(`UsageTicket`) | 생성자·게터·상태 전이 |
 | `shared/domain/` 타입 ID 부품 3개 | `LongTypeIdentifierJavaTypeTest` | 리플렉션 분기까지 전 라인 — youngZZ 가 100% 커버 선례 |
 | `auth/UserId.java` · `payment/UsageTicketId.java` | 계약 단위 테스트 + 모듈 통합(실 DB 왕복) | ⚠️ **모듈 루트라 `dto/**` 제외에 안 걸린다** — 커버리지 집계 대상. `@JavaType` wrap/unwrap 은 통합 테스트의 flush/clear 후 재조회가 실제로 태운다 |

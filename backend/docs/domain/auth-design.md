@@ -45,7 +45,7 @@
 |---|---|---|
 | `shared` | 사용 (OPEN 모듈) | 자유 참조. `BaseTimeEntity`·`ErrorCode`·`BusinessException` |
 | `config` | 역방향 참조당함 | `config` 가 `shared/security` 의 필터·진입점을 조립한다. **`config` → `auth` 의존은 만들지 않는다**(§2-1 쟁점 3) |
-| `bootstrap` (미구현) | **참조당함** | `bootstrap` → `auth` 단방향. `AuthService` 를 직접 호출한다 |
+| `bootstrap` (미구현) | **참조당함** | `bootstrap` → `auth` 단방향. `AuthPort` 를 직접 호출한다 |
 | `subscription` (미존재) | **없음** | ⚠️ **auth 는 subscription 을 영원히 참조하지 않는다** — auth.md §4-7 확정 |
 
 - **이벤트를 발행하지 않는다.** [architecture.md](../rule/architecture.md) 는 모듈 간 통신에 이벤트를
@@ -121,7 +121,7 @@ auth.md §4-7 확정 사항의 구조적 형태만 미리 고정한다.
 POST /api/v1/bootstrap                              -- (v3 갱신 — 도메인 개명·타입 ID 반영)
    └─▶ bootstrap 모듈 (allowedDependencies = { shared, auth, payment })
           ├─▶ AuthService.register(anonymousKey)      → newUser, registeredAt, userId
-          └─▶ PaymentService.entitlementOf(userId)    → 이용권 상태   ← 익명키가 아니라 UserId 를 넘긴다
+          └─▶ PaymentReaderPort.entitlementOf(userId)    → 이용권 상태   ← 익명키가 아니라 UserId 를 넘긴다
 ```
 
 - **자기 저장소를 갖지 않는다.** 엔티티·리포지토리가 생기면 그건 집계가 아니라 새 도메인이므로
@@ -226,17 +226,23 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
 
 ## 4. 모듈 매핑 (Spring Modulith)
 
+**Port·Service·Support 규약**(2026-08-12 — [architecture.md](../rule/architecture.md), `ArchitectureConventionTest`
+R1~R6 강제)을 따른다. 공개 계약은 루트의 **`AuthPort`** 하나이고, 구현·부품은 전부 `internal` 이다.
+auth 는 소비자가 등록 한 흐름뿐이라 포트도 `AuthPort` 하나면 충분하다(포트는 책임 단위로 자르되,
+표면이 하나면 하나만 둔다).
+
 | 위치 | 산출물 | 공개 여부 |
 |---|---|---|
 | `auth/package-info.java` | `@ApplicationModule(displayName="인증", allowedDependencies={"shared"})` | — |
-| `auth/AuthService.java` | 모듈 공개 API. `Registration register(String anonymousKey)` | **public (모듈 밖 유일 진입)** |
+| `auth/AuthPort.java` | **공개 등록 포트** — `Registration register(String anonymousKey)`. 소비자: bootstrap·payment | **public (모듈 밖 유일 진입)** |
 | `auth/UserId.java` **(v3)** | `final class extends LongTypeIdentifier`(`shared/domain`) — **모듈이 노출하는 유일한 식별자.** 엔티티는 internal 에 남는다 | public |
 | `auth/UserIdJavaType.java` **(v3)** | Hibernate 매핑 어댑터 — `payment` 엔티티의 FK 컬럼이 쓴다 | public |
 | `auth/dto/Registration.java` | `record Registration(boolean newUser, LocalDateTime registeredAt, UserId userId)` **(v3 — userId 추가)** | public |
-| `auth/internal/User.java` | 엔티티 | 모듈 밖 참조 불가 |
-| `auth/internal/UserRepository.java` | `findByAnonymousKeyHash` / `save` **(v2)** | 모듈 밖 참조 불가 |
-| `auth/internal/UserWriter.java` | **신규 빈** — `@Transactional(REQUIRES_NEW) User insert(String)`. **별도 빈이어야 하는 이유는 §6-4** | 모듈 밖 참조 불가 |
-| `auth/internal/AnonymousKeyHasher.java` | **신규 (v2)** — `String hash(String rawKey)` = SHA-256 hex 64자. 저장·조회 직전에만 쓴다(§3-2) | 모듈 밖 참조 불가 |
+| `auth/internal/service/AuthService.java` | **`AuthPort` 구현** — 유일한 오케스트레이터. 밖에서 직접 참조 불가(포트로만) | 모듈 밖 참조 불가 |
+| `auth/internal/entity/User.java` | 엔티티 | 모듈 밖 참조 불가 |
+| `auth/internal/handler/outbound/repository/UserRepository.java` | `findByAnonymousKeyHash` / `save` **(v2)** | 모듈 밖 참조 불가 |
+| `auth/internal/service/support/UserWriter.java` | **`@Support` 빈** — `@Transactional(REQUIRES_NEW) User insert(String)`. **별도 빈이어야 하는 이유는 §6-4** | 모듈 밖 참조 불가 |
+| `auth/internal/service/support/AnonymousKeyHasher.java` | **`@Support` (v2)** — `String hash(String rawKey)` = SHA-256 hex 64자. 저장·조회 직전에만 쓴다(§3-2) | 모듈 밖 참조 불가 |
 | `shared/security/AnonymousKeyFilter.java` | **변경** — 형식 검증 + 거부 사유 attribute (U1·U5) | 기존 public |
 | `shared/security/AnonymousKeyEntryPoint.java` | **신규** — 401 본문 직접 작성 (U3) | public |
 | `shared/security/AnonymousKeyFormat.java` | **신규** — 형식 규칙 + `mask()` (U5·U6) | public |
@@ -246,13 +252,13 @@ User                              -- auth 모듈. 익명키당 정확히 하나(
 **시그니처 수준**
 
 ```
-AuthService
+AuthPort (공개 포트)                              -- 모듈 밖 유일 진입. 구현은 internal/service/AuthService
   Registration register(String anonymousKey)      -- ⚠️ @Transactional 없음(의도적). 멱등(U2). §5-1·§6-4
                                                      경쟁 시 UNIQUE 위반을 흡수해 기존 사용자를 돌려준다
                                                      (트랜잭션 경계는 §6-4 판정 매트릭스가 정본)
-    └─ UserWriter 를 주입받아 호출한다              -- 자기 호출이면 REQUIRES_NEW 가 안 걸린다(§6-4)
+    └─ UserWriter(@Support)를 주입받아 호출한다     -- 자기 호출이면 REQUIRES_NEW 가 안 걸린다(§6-4)
 
-UserWriter                                        -- internal. AuthService 와 반드시 다른 빈
+UserWriter (@Support)                             -- internal/service/support. AuthService 만 참조. 반드시 다른 빈
   User insert(String anonymousKey)                -- @Transactional(REQUIRES_NEW)
 
 AnonymousKeyFormat                                -- 상수 + 순수 함수. 상태 없음
@@ -263,9 +269,10 @@ AnonymousKeyEntryPoint implements AuthenticationEntryPoint
   void commence(req, res, authException)          -- attribute → AUTH_001 | AUTH_002 → ErrorResponse 401
 ```
 
-- **`AuthService`(+v3 의 `UserId`·`UserIdJavaType`)가 모듈 루트의 public 타입**이다.
-  `User`·`UserRepository`·`UserWriter` 는 `internal/` 이라 Modulith 가 외부 참조를 차단한다
-  ([architecture.md](../rule/architecture.md)).
+- **`AuthPort`(+v3 의 `UserId`·`UserIdJavaType`)가 모듈 루트의 public 타입**이다. 구현
+  `AuthService` 와 `User`·`UserRepository`·`UserWriter`·`AnonymousKeyHasher` 는 전부 `internal/` 이라
+  Modulith 가 외부 참조를 차단하고, 그 안쪽 규약은 `ArchitectureConventionTest` 가 강제한다
+  ([architecture.md](../rule/architecture.md) "Port·Service·Support 규약").
 - ~~`Registration` 에 **사용자 식별자(id)를 담지 않는다.**~~ **(v3 에서 번복)** —
   타입화된 기본키 패턴 채택으로 **다른 모듈이 auth 의 PK 를 들고 다니는 것이 바로 목표**가 됐다.
   단 **원시 `Long` 이 아니라 `UserId` 로 타입화해서** 담는다 — 혼용을 컴파일러가 잡는다.
@@ -429,7 +436,7 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 실행된다. 그러면 §6-2 **함정 ②가 그대로 재현**되어 커밋 시점에 `UnexpectedRollbackException` 이 터진다.
 
 → 즉 “`REQUIRES_NEW` 를 쓴다”는 문장만으로는 이 설계가 성립하지 않는다.
-**삽입을 `auth/internal/UserWriter` 라는 다른 빈으로 옮기고 `AuthService` 가 주입받아 호출**해야
+**삽입을 `auth/internal/service/support/UserWriter` 라는 다른 빈으로 옮기고 `AuthService` 가 주입받아 호출**해야
 비로소 §6-3 의 채택 근거가 유효해진다. `@Lazy` 자기 주입도 가능하지만, 의존이 눈에 보이는 별도 빈이
 읽기 쉽고 테스트에서 경계를 확인하기도 쉽다.
 
@@ -559,10 +566,10 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 
 | 산출물 | 덮는 테스트 | 비고 |
 |---|---|---|
-| `auth/AuthService.java` | `AuthServiceTest` + `AuthConcurrencyTest` | catch 분기는 동시성 테스트로만 도달한다 — 단위로는 못 덮는다 |
-| `auth/internal/User.java` | `AuthServiceTest` | 생성자·게터 |
-| `auth/internal/UserRepository.java` | `AuthServiceTest` | 인터페이스(구현 라인 없음) |
-| `auth/internal/UserWriter.java` | `AuthServiceTest` + `AuthConcurrencyTest` | 정상 삽입 + 경쟁 시 롤백 경계(§6-4) |
+| `auth/internal/service/AuthService.java` | `AuthServiceTest` + `AuthConcurrencyTest` | catch 분기는 동시성 테스트로만 도달한다 — 단위로는 못 덮는다 |
+| `auth/internal/entity/User.java` | `AuthServiceTest` | 생성자·게터 |
+| `auth/internal/handler/outbound/repository/UserRepository.java` | `AuthServiceTest` | 인터페이스(구현 라인 없음) |
+| `auth/internal/service/support/UserWriter.java` | `AuthServiceTest` + `AuthConcurrencyTest` | 정상 삽입 + 경쟁 시 롤백 경계(§6-4) |
 | `auth/internal/AnonymousKeyHasher.java` **(v2)** | `AnonymousKeyHasherTest` | 결정성(같은 입력 → 같은 해시) · 64자 hex · 서로 다른 입력의 비충돌 |
 | `auth/dto/Registration.java` | — | `dto/**` 커버리지 제외([testing.md](../rule/testing.md)) |
 | `shared/security/AnonymousKeyFilter.java` | `AnonymousKeyFilterTest` | 3분기 전부 |
