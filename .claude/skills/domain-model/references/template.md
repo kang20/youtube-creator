@@ -25,11 +25,12 @@ backend/docs/model/
 | 규칙 | 이유 |
 |---|---|
 | 코드펜스는 반드시 ` ```mermaid ` | GitHub·VS Code 가 이걸로 판별한다 |
+| `classDiagram` 의 클래스 id·`namespace` 이름은 **ASCII** | 공백·괄호·한글이 들어가면 파싱이 깨진다. 한글명은 스테레오타입이나 주석으로 |
+| `classDiagram` 관계 라벨(`: 텍스트`)은 **따옴표 없이** | 따옴표가 그대로 출력된다. 라벨 안에 `:` 를 넣지 않는다 (`←`·`·` 는 안전) |
 | `flowchart` 노드 라벨에 한글·`·`·`(` 가 들면 **따옴표로 감싼다** — `A["결제·이용권"]` | 따옴표 없으면 파서가 끊는다 |
 | 반대로 `sequenceDiagram` 의 `participant X as 결제·이용권` 은 **따옴표를 쓰지 않는다** | 별칭은 줄 끝까지 자유 문자열이라 따옴표가 그대로 출력된다 |
 | `stateDiagram-v2` 의 상태 id 는 **ASCII**, 한글은 `state "활성" as ACTIVE` 로 | 비ASCII id 는 렌더러마다 처리가 다르다 |
-| `erDiagram` 엔티티명은 **영문 대문자 + 언더스코어** | 하이픈·점은 파싱 실패 |
-| 다이어그램 하나에 노드 30개를 넘기지 않는다 | 자동 레이아웃이 무너진다. 넘으면 쪼갠다 |
+| 다이어그램 하나에 노드 30개를 넘기지 않는다 | 자동 레이아웃이 무너진다 |
 
 ### 관계선 규약 — **이 프로젝트 전용**
 
@@ -37,8 +38,8 @@ backend/docs/model/
 
 | 표기 | 의미 | 언제 |
 |---|---|---|
-| `\|\|--o{` (실선) | **애그리거트 내부** 관계 — 같은 트랜잭션에서 함께 산다 | 루트와 그 구성 엔티티 |
-| `\|\|..o{` (점선) | **애그리거트·모듈 경계를 넘는 ID 참조** — 물리 FK 없음, JOIN 하지 않음 | 다른 애그리거트를 가리킬 때 |
+| `*--` (합성) | **애그리거트 내부** · 중첩 DTO — 같은 트랜잭션에서 함께 산다 | 루트와 그 구성 엔티티 |
+| `..>` (점선 의존) | **애그리거트·모듈 경계를 넘는 ID 참조 / 필드 출처** — 물리 FK 없음, JOIN 하지 않음 | 다른 애그리거트·다른 모듈을 가리킬 때 |
 
 > 점선을 실선으로 잘못 그리면 "JOIN 해도 된다"는 오해를 낳는다. **선 종류가 곧 규칙이다.**
 
@@ -53,17 +54,36 @@ backend/docs/model/
 
 메타데이터(근거 커밋·갱신일·분리 문서 목록)는 **HTML 주석**에 넣는다 — 렌더링되지 않는다.
 
-### 구성
+### 구성 — 그림은 **하나**, 종류는 **`classDiagram`**
 
-| 블록 | 언제 |
+**`classDiagram` 블록 딱 하나.** ERD 를 따로 두거나 flowchart 를 덧붙이지 않는다.
+전 모듈이 한 그림 안에 있어야 경계가 보인다 — **쪼개는 순간 그 값이 사라진다.**
+
+**`flowchart` 를 쓰지 않는 이유**: 노드 라벨에 `<br/>` 로 필드를 나열하면 **줄글이 되어 읽히지
+않는다.** `classDiagram` 은 어트리뷰트가 클래스 박스 안에 **한 줄씩 표처럼 쌓인다.**
+
+```
+classDiagram
+    direction LR
+
+    namespace auth {            ← Modulith 모듈 하나 = namespace 하나 (ASCII 모듈명)
+        class User {
+            <<애그리거트 루트>>   ← 역할은 스테레오타입이 밝힌다
+            +UserId id  PK       ← 어트리뷰트 한 줄 = 표 한 행
+        }
+    }
+```
+
+| 요소 | 규칙 |
 |---|---|
-| **① 애그리거트 지도** (`flowchart`) | 항상 — 전 모듈이 여기 모인다 |
-| **② 통합 ERD** (`erDiagram`) | 도메인 모듈이 하나라도 있으면 |
-| **③ 집계 DTO 구성도** (`classDiagram`) | 집계 컨텍스트가 있을 때. 집계 모듈마다 블록 하나 |
+| `namespace` | Modulith 모듈. **ASCII 모듈명**만 (`auth`·`payment`·`bootstrap`). 한글 표시명은 HTML 주석의 매핑에 |
+| `<<...>>` | 역할 — `<<애그리거트 루트>>` · `<<구성 엔티티>>` · `<<집계 DTO · 자기 저장소 없음>>` |
+| 어트리뷰트 | `+타입 이름  제약` 한 줄씩. `PK`·`UK`·`논리참조` 를 뒤에 붙인다 |
+| 메서드 | 상태 판정이 불변식을 드러낼 때만 (`+isRevoked() boolean`) |
+| `*--` / `..>` | 애그리거트 내부·중첩 DTO / 경계를 넘음 |
+| `note for` | 라벨에 안 들어가는 불변식 |
 
 모듈 간 의존 그래프는 여기 그리지 않는다 — Modulith `Documenter` 몫이다.
-
-**집계 컨텍스트는 ② 에 넣지 않는다.** 테이블이 없으므로 넣는 순간 거짓말이 된다.
 
 ### 양식
 
@@ -71,57 +91,64 @@ backend/docs/model/
 <!--
   전 모듈 도메인 모델 — /domain-model 이 관리한다. 손으로 고쳐도 되지만 형식은 지킨다.
 
-  ⚠️ 이 파일에는 Mermaid 코드블록과 이런 HTML 주석 외에 아무것도 쓰지 않는다.
-     설명이 필요하면 {module}-notes.md 로 뺀다.
+  ⚠️ 이 파일에는 Mermaid 코드블록 하나와 이런 HTML 주석 외에 아무것도 쓰지 않는다.
+  ⚠️ 다이어그램을 쪼개지 않는다. 전 모듈이 한 그림 안에 있어야 경계가 보인다.
+
+  namespace = Modulith 모듈. 한글 표시명 매핑
+    auth → 인증 · payment → 결제·이용권 · bootstrap → 진입
+
+  선 규약
+    *--   애그리거트 내부 · 중첩 DTO (같은 트랜잭션)
+    ..>   경계를 넘음 (물리 FK 없음 · JOIN 금지 · ID 값이나 DTO 로만)
 
   구역별 근거 커밋 · 갱신일
     auth    : d2d5e26 · 2026-08-13
     payment : (미작성)
-
-  분리 문서
-    auth : auth-notes.md · auth-state.md · auth-flow.md
 -->
 
 ```mermaid
-flowchart TB
-    subgraph M_AUTH["인증 (auth)"]
-        subgraph AG_USER["애그리거트: User"]
-            U["User (루트)"]
-            RT["RefreshToken"]
-            U --> RT
-        end
-    end
+classDiagram
+    direction LR
 
-    subgraph M_PAY["결제·이용권 (payment)"]
-        subgraph AG_ORDER["애그리거트: PaymentOrder"]
-            PO["PaymentOrder (루트)"]
-        end
-    end
+    namespace auth {
+        class User {
+            <<애그리거트 루트>>
+            +UserId id  PK
+            +String anonymousKeyHash  UK
+            +LocalDateTime createdAt
+        }
 
-    AG_ORDER -.->|"UserId 값 참조"| AG_USER
-```
-
-```mermaid
-erDiagram
-    USERS ||--o{ REFRESH_TOKENS : "발급 (물리 FK 없음)"
-    USERS ||..o{ PAYMENT_ORDERS : "user_id (경계 넘음)"
-
-    USERS {
-        UserId id PK "BIGINT AUTO_INCREMENT"
-        String anonymous_key_hash UK "SHA-256 hex 64"
+        class RefreshToken {
+            <<구성 엔티티>>
+            +UserId userId  논리참조
+            +String tokenHash  UK
+            +LocalDateTime revokedAt
+            +isRevoked() boolean
+        }
     }
 
-    REFRESH_TOKENS {
-        Long id PK "밖에 안 나감"
-        UserId user_id "논리 참조"
-        String token_hash UK "조회 키"
-        LocalDateTime revoked_at "NULL = 활성"
+    namespace bootstrap {
+        class BootstrapResponse {
+            <<집계 DTO · 자기 저장소 없음>>
+            +boolean newUser
+            +LocalDateTime registeredAt
+            +AuthTokens auth
+        }
     }
+
+    User *-- RefreshToken : 애그리거트 내부 · 같은 트랜잭션
+    BootstrapResponse ..> User : newUser ← 삽입 여부 · registeredAt ← createdAt
+
+    note for RefreshToken "revokedAt NULL 이면 활성 · 폐기 행은 지우지 않는다"
+    note for BootstrapResponse "UserId 는 싣지 않는다 — 서버 내부 식별자다"
 ```
 ````
 
-**ERD 컬럼은 식별자·상태·불변식에 관여하는 것만.** 전 컬럼 나열 금지 — DDL(`backend/deploy/sql/`)이
-정본이다. `createdAt`·`updatedAt` 같은 `BaseTimeEntity` 공통 필드는 생략한다.
+**어트리뷰트는 식별자·상태·불변식에 관여하는 것만.** 전 컬럼 나열 금지 —
+DDL(`backend/deploy/sql/`)이 정본이다. `createdAt`·`updatedAt` 같은 `BaseTimeEntity` 공통
+필드는 등록 시각처럼 의미가 있을 때만 적는다.
+
+**집계 DTO 는 예외로 필드를 전부 적는다** — 프론트 계약이라 전부가 의미다.
 
 ---
 
@@ -132,70 +159,42 @@ erDiagram
 저장소를 갖지 않는 것이 **이 모듈의 정체성**이다. "엔티티가 없어서 못 그리는 모듈"로 취급하지 않는다.
 여기에 엔티티가 생기면 그건 집계가 아니라 새 도메인이다 — **라벨이 그 경계를 지킨다.**
 
-### ① 애그리거트 지도에 구역 추가
-
-- subgraph 라벨에 **`— 집계 컨텍스트`** 를 붙인다
-- 노드 라벨에 **`집계 DTO · 자기 저장소 없음`** 을 명시한다
-- 다른 모듈에서 **무엇을 받아 오는지** 화살표 라벨에 적는다
+**별도 다이어그램을 만들지 않는다.** 같은 `classDiagram` 안에 `namespace` 하나로 들어간다.
 
 ```
-    subgraph M_BOOT["진입 (bootstrap) — 집계 컨텍스트"]
-        BR["BootstrapResponse<br/>집계 DTO · 자기 저장소 없음"]
-    end
+    namespace bootstrap {
+        class BootstrapResponse {
+            <<집계 DTO · 자기 저장소 없음>>
+            +boolean newUser
+            +LocalDateTime registeredAt
+            +AuthTokens auth
+            +EntitlementView entitlement
+        }
 
-    AG_USER -.->|"LoginResult"| BR
-    PAY -.->|"EntitlementView"| BR
-```
-
-### ② 집계 DTO 구성도
-
-**집계 모듈에서는 DTO 가 곧 모델이다.** 그래서 여기서만 필드를 전부 적는다
-(도메인 모듈 ERD 는 식별자·상태만 적는 것과 반대다 — DTO 는 프론트 계약이라 전부가 의미다).
-
-````markdown
-```mermaid
-classDiagram
-    direction LR
-
-    class BootstrapResponse {
-        <<집계 DTO — 저장소 없음>>
-        +boolean newUser
-        +LocalDateTime registeredAt
-        +AuthTokens auth
-        +EntitlementView entitlement
-    }
-
-    class AuthTokens {
-        <<auth dto>>
-        +String accessToken
-        +String refreshToken
-    }
-
-    class User {
-        <<auth 애그리거트 루트>>
-        +UserId id
-        +LocalDateTime createdAt
+        class AuthTokens {
+            <<중첩 DTO>>
+            +String accessToken
+            +String refreshToken
+        }
     }
 
     BootstrapResponse *-- AuthTokens
     BootstrapResponse ..> User : newUser ← 삽입 여부 · registeredAt ← createdAt
+    AuthTokens ..> RefreshToken : refreshToken 원문은 미저장 · tokenHash 만 남는다
 
     note for BootstrapResponse "UserId 는 싣지 않는다 — 서버 내부 식별자다"
 ```
-````
 
 | 요소 | 규칙 |
 |---|---|
-| `<<...>>` | **출처 모듈**을 표시한다 — `<<auth dto>>` · `<<payment dto>>` · `<<auth 애그리거트 루트>>` |
+| 스테레오타입 | **`<<집계 DTO · 자기 저장소 없음>>`** 을 붙인다. 빼지 마라 |
+| 어트리뷰트 | **필드를 전부** 적는다 — 도메인 엔티티는 핵심 필드만 적는 것과 반대다 |
 | `*--` | 중첩 DTO (합성) |
-| `..>` + 라벨 | **필드가 어디서 왔는가** — `registeredAt ← User.createdAt`. **이게 집계 그림의 핵심 정보다** |
+| `..>` + 라벨 | **필드가 어디서 왔는가** — `registeredAt ← createdAt`. **이게 집계 구역의 핵심 정보다** |
 | `note for` | 계약상 **일부러 뺀 필드** (내부 식별자 미노출 등) |
 
-**참고용으로 끌어온 다른 도메인 엔티티는 필드를 다 적지 않는다** — 출처로 지목된 필드만.
-그 엔티티의 전모는 ERD 가 정본이다.
-
-⚠️ `classDiagram` 주의: `..>` 라벨은 **따옴표 없이** 쓴다(따옴표가 그대로 출력된다).
-라벨 안에 `:` 를 넣지 않는다(구분자와 헷갈린다). `←`·`·` 는 안전하다.
+출처 화살표는 **DTO 에서 그 값을 만든 엔티티로** 긋는다 — 어느 엔티티의 어느 필드에서
+왔는지가 드러나야 값이 있다. 모듈 단위로 뭉뚱그리면 의미가 없다.
 
 ---
 
@@ -328,6 +327,9 @@ sequenceDiagram
 | 실수 | 왜 문제인가 |
 |---|---|
 | `master.md` 에 제목·한 줄 설명을 넣음 | 한 줄이 두 줄 되고 결국 산문 문서가 된다. **예외를 만들지 마라** |
+| 다이어그램을 종류별로 쪼갬 (ERD·flowchart 추가) | 경계는 **한 그림 안에서만** 보인다. 쪼개면 그림 사이 관계를 머리로 이어야 한다 |
+| `flowchart` 노드에 `<br/>` 로 필드를 이어붙임 | 줄글이 되어 읽히지 않는다. 클래스 박스의 **한 줄 = 표 한 행** |
+| `namespace` 이름에 한글·공백·괄호를 넣음 | 파싱이 깨진다. ASCII 모듈명만 — 한글명은 HTML 주석 매핑에 |
 | `master.md` 의 다른 모듈 구역을 같이 손댐 | 근거 커밋이 어긋나 어느 그림이 최신인지 알 수 없게 된다 |
 | 전 컬럼을 ERD 에 옮겨 적음 | DDL 과 이중 관리 → 반드시 어긋난다. 식별자·상태만 |
 | 애그리거트 경계를 실선으로 그림 | JOIN 해도 되는 것처럼 읽힌다 |
