@@ -20,9 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import kang20.ytcreator.auth.AuthPort;
 import kang20.ytcreator.auth.UserId;
-import kang20.ytcreator.auth.dto.Registration;
 import kang20.ytcreator.base.ControllerTest;
 import kang20.ytcreator.payment.dto.EntitlementView;
 import kang20.ytcreator.payment.dto.GrantResult;
@@ -32,12 +30,10 @@ import kang20.ytcreator.payment.dto.SubscriptionSnapshot;
 import kang20.ytcreator.payment.internal.handler.inbound.PaymentController;
 import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
-import kang20.ytcreator.shared.security.AnonymousKeyFilter;
-import kang20.ytcreator.shared.security.AnonymousKeyFixture;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
@@ -48,29 +44,24 @@ import org.springframework.test.web.servlet.MvcResult;
  * <p><b>계약 단언은 payment.md §5 원문이 기준이다</b> — 프론트가 읽는 유일한 창구는 이 스니펫으로
  * 만든 HTML 이라(§8-2), 필드명이 원문과 다르면 그대로 프론트 장애다.
  *
+ * <p><b>(auth v4) 자격 증명은 익명키가 아니라 {@code Authorization: Bearer} 다</b>(auth.md §5-1 ·
+ * auth-design.md §14-5 "기존 컨트롤러 테스트 전부 Bearer 로 전환"). 요청 주체는 게이트가 토큰
+ * 서명으로 확정한 {@code UserId} 이고 {@code @CurrentUser} 리졸버가 주입한다 — {@code AuthPort}
+ * 목이 사라진 것 자체가 "payment 의 AuthPort 의존 소멸"(§14-2)의 검증이다.
+ *
  * <p>U14 — 성공·실패 어느 응답 본문에도 {@code orderId} 가 실리지 않는다.
  * ⚠️ 문서 예시의 orderId 는 명백한 더미("order-...")만 쓴다(§8).
  */
 @WebMvcTest(PaymentController.class)
 class PaymentControllerTest extends ControllerTest {
 
-	private static final String ANON_KEY = AnonymousKeyFixture.VALID;
 	private static final UserId USER = new UserId(77L);
-
-	@MockitoBean
-	private AuthPort authPort;
 
 	@MockitoBean
 	private PaymentReaderPort readerPort;
 
 	@MockitoBean
 	private PaymentPurchasePort purchasePort;
-
-	@BeforeEach
-	void resolveUser() {
-		when(authPort.register(ANON_KEY))
-			.thenReturn(new Registration(false, LocalDateTime.of(2026, 8, 1, 10, 0), USER));
-	}
 
 	private static EntitlementView creditsOnly(int credits) {
 		return new EntitlementView(credits > 0, credits, false, EntitlementView.SubscriptionView.none());
@@ -130,9 +121,9 @@ class PaymentControllerTest extends ControllerTest {
 						.description("프로모션 오퍼. null 이면 기본 가격"))));
 	}
 
-	/** SecurityConfig 검증(§10 config 행) — 상품 조회는 공개 경로다. 익명키 없이 200 */
+	/** SecurityConfig 검증(§10 config 행) — 상품 조회는 공개 경로다. 토큰 없이 200 (auth.md §4-2 v3) */
 	@Test
-	@DisplayName("상품 조회는 익명키 없이 호출된다 — 결제하려는 API 가 결제를 요구할 수 없다")
+	@DisplayName("상품 조회는 토큰 없이 호출된다 — 결제하려는 API 가 결제를 요구할 수 없다")
 	void 상품_조회는_공개다() throws Exception {
 		when(readerPort.products()).thenReturn(new ProductCatalog(
 			new ProductCatalog.OneTime(PaymentFixture.ONE_TIME_SKU, "CONSUMABLE"), null));
@@ -155,7 +146,7 @@ class PaymentControllerTest extends ControllerTest {
 			.thenReturn(new GrantResult(true, ProductType.CONSUMABLE, creditsOnly(3)));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"orderId\": \"order-doc-1\" }"))
 			.andExpect(status().isOk())
@@ -168,7 +159,8 @@ class PaymentControllerTest extends ControllerTest {
 			.andExpect(jsonPath("$.entitlement.subscription.status").value("NONE"))
 			.andDo(document("payment-grant",
 				requestPreprocessor(), responsePreprocessor(),
-				requestHeaders(headerWithName(AnonymousKeyFilter.HEADER).description("익명키(전 구간 단일 식별)")),
+				requestHeaders(headerWithName(HttpHeaders.AUTHORIZATION)
+					.description("Bearer {access} — 부트스트랩이 발급한 JWT(auth.md §5-1)")),
 				requestFields(fieldWithPath("orderId")
 					.description("processProductGrant 콜백 또는 getPendingOrders() 의 주문 ID. sku 는 보내지 않는다 — 서버가 토스 응답으로 판별한다")),
 				responseFields(
@@ -192,7 +184,7 @@ class PaymentControllerTest extends ControllerTest {
 		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_002));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"orderId\": \"order-doc-2\" }"))
 			.andExpect(status().isConflict())
@@ -210,7 +202,7 @@ class PaymentControllerTest extends ControllerTest {
 		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_003));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"orderId\": \"order-doc-3\" }"))
 			.andExpect(status().isConflict())
@@ -228,7 +220,7 @@ class PaymentControllerTest extends ControllerTest {
 		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_004));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"orderId\": \"order-doc-4\" }"))
 			.andExpect(status().isNotFound())
@@ -247,7 +239,7 @@ class PaymentControllerTest extends ControllerTest {
 		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_005));
 
 		MvcResult result = mockMvc.perform(post("/api/v1/payments/grant")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"orderId\": \"order-doc-5\" }"))
 			.andExpect(status().isConflict())
@@ -270,7 +262,7 @@ class PaymentControllerTest extends ControllerTest {
 		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_006));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"orderId\": \"order-doc-6\" }"))
 			.andExpect(status().isBadGateway())
@@ -291,7 +283,7 @@ class PaymentControllerTest extends ControllerTest {
 		when(readerPort.entitlementOf(USER)).thenReturn(activeSubscription());
 
 		mockMvc.perform(get("/api/v1/payments/entitlement")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY))
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.accessible").value(true))
 			.andExpect(jsonPath("$.credits").value(0))
@@ -302,7 +294,7 @@ class PaymentControllerTest extends ControllerTest {
 			.andExpect(jsonPath("$.subscription.autoRenew").value(true))
 			.andDo(document("payment-entitlement",
 				requestPreprocessor(), responsePreprocessor(),
-				requestHeaders(headerWithName(AnonymousKeyFilter.HEADER).description("익명키")),
+				requestHeaders(headerWithName(HttpHeaders.AUTHORIZATION).description("Bearer {access}")),
 				responseFields(
 					fieldWithPath("accessible").description("이용 가능 여부 — 프론트 분기는 이 값 하나로만(§4-3 판정 결과)"),
 					fieldWithPath("credits").description("남은 횟수권 — 'n회 남음' 표시"),
@@ -319,7 +311,7 @@ class PaymentControllerTest extends ControllerTest {
 		when(readerPort.entitlementOf(USER)).thenReturn(staleSubscription());
 
 		mockMvc.perform(get("/api/v1/payments/entitlement")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY))
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.accessible").value(false))
 			.andExpect(jsonPath("$.subscriptionStale").value(true))
@@ -346,7 +338,7 @@ class PaymentControllerTest extends ControllerTest {
 			.thenReturn(activeSubscription());
 
 		mockMvc.perform(post("/api/v1/payments/subscription/recheck")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"status\": \"ACTIVE\", \"expiresAt\": \"2026-09-08T00:00:00+09:00\", \"autoRenew\": true }"))
 			.andExpect(status().isOk())
@@ -354,7 +346,7 @@ class PaymentControllerTest extends ControllerTest {
 			.andExpect(jsonPath("$.subscriptionStale").value(false))
 			.andDo(document("payment-subscription-recheck",
 				requestPreprocessor(), responsePreprocessor(),
-				requestHeaders(headerWithName(AnonymousKeyFilter.HEADER).description("익명키")),
+				requestHeaders(headerWithName(HttpHeaders.AUTHORIZATION).description("Bearer {access}")),
 				requestFields(
 					fieldWithPath("status").description("getSubscriptionInfo 의 status 원문. orderId 는 보내지 않는다 — SDK 에서 직접 얻는 값이라 서버가 알 필요 없다"),
 					fieldWithPath("expiresAt").optional().description("만료 시각 — 오프셋 포함 형식. SDK 가 null 을 줄 수 있다"),
@@ -376,7 +368,7 @@ class PaymentControllerTest extends ControllerTest {
 			.thenThrow(new BusinessException(ErrorCode.PAY_004));
 
 		mockMvc.perform(post("/api/v1/payments/subscription/recheck")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"status\": \"ACTIVE\", \"expiresAt\": null, \"autoRenew\": true }"))
 			.andExpect(status().isNotFound())
@@ -393,7 +385,7 @@ class PaymentControllerTest extends ControllerTest {
 	@DisplayName("orderId 가 비어 있으면 400 COMMON_001 이다")
 	void 지급_요청_검증() throws Exception {
 		mockMvc.perform(post("/api/v1/payments/grant")
-				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(USER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{ \"orderId\": \"\" }"))
 			.andExpect(status().isBadRequest())

@@ -24,8 +24,8 @@ import org.springframework.stereotype.Controller;
  * <p>{@code ModularityTest} 의 {@code verify()} 로는 잡히지 <b>않는</b> 두 가지를 여기서 막는다.
  *
  * <ul>
- *   <li>auth 에 컨트롤러가 생기는 것 — auth.md §5-3 은 "auth 는 자체 HTTP 엔드포인트를 두지 않는다"
- *       (부트스트랩은 집계 모듈 소유, §4-7 안 ⓒ 확정). 컨트롤러가 생겨도 모듈 경계 검증은 통과한다.</li>
+ *   <li>auth 에 컨트롤러가 <b>불어나는</b> 것 — auth.md §5-3 (v4 번복) 은 refresh <b>하나만</b>
+ *       허용한다. 컨트롤러가 늘어도 모듈 경계 검증은 통과한다.</li>
  *   <li>{@code allowedDependencies} 에 {@code subscription} 이 추가되는 것 — 목록에 적어 넣으면
  *       {@code verify()} 는 그 의존을 <b>정상</b>으로 본다. auth.md §4-7 이 막으려던 순환의 씨앗이
  *       조용히 통과한다.</li>
@@ -36,20 +36,22 @@ class AuthModuleBoundaryTest {
 	private static final String AUTH_PACKAGE = "kang20.ytcreator.auth";
 
 	/**
-	 * U4 · auth.md §5-3 — auth 가 밖에 내놓는 것은 모듈 공개 API 와 게이트뿐이고 HTTP 엔드포인트는 없다.
-	 * 진입 응답은 집계 모듈 {@code bootstrap} 이 조립한다(§4-7). 여기 컨트롤러가 생기면
+	 * U4 · auth.md §5-3 <b>(v4 번복)</b> — auth 의 HTTP 엔드포인트는 {@code AuthTokenController}
+	 * (refresh) <b>하나뿐</b>이다. "토큰 갱신은 합칠 곳이 없다"가 번복의 전부이고, 진입 응답 조립은
+	 * 여전히 집계 모듈 {@code bootstrap} 몫이다(§4-7). 여기 두 번째 컨트롤러가 생기면
 	 * "auth 가 서서히 홈 화면 API 가 된다"는 §4-7 의 우려가 현실이 된다.
 	 */
 	@Test
-	@DisplayName("auth 모듈에는 HTTP 엔드포인트(컨트롤러)가 없다")
-	void auth_에는_컨트롤러가_없다() {
+	@DisplayName("auth 모듈의 HTTP 엔드포인트는 refresh 컨트롤러 하나뿐이다")
+	void auth_의_컨트롤러는_refresh_하나뿐이다() {
 		ClassPathScanningCandidateComponentProvider scanner =
 			new ClassPathScanningCandidateComponentProvider(false);
 		scanner.addIncludeFilter(new AnnotationTypeFilter(Controller.class));   // @RestController 도 메타로 잡힌다
 
 		assertThat(scanner.findCandidateComponents(AUTH_PACKAGE))
-			.as("auth.md §5-3 — auth 는 자체 HTTP 엔드포인트를 두지 않는다")
-			.isEmpty();
+			.as("auth.md §5-3 v4 — auth 가 갖는 HTTP 엔드포인트는 POST /api/v1/auth/refresh 하나다")
+			.extracting(definition -> definition.getBeanClassName())
+			.containsExactly("kang20.ytcreator.auth.internal.handler.inbound.AuthTokenController");
 	}
 
 	/**
@@ -138,5 +140,34 @@ class AuthModuleBoundaryTest {
 			.as("UNIQUE 제약이 멱등(U2)의 유일한 근거다 — 이름까지 매핑과 맞춰 둔다")
 			.contains(User.class.getAnnotation(Table.class).uniqueConstraints()[0].name().toLowerCase(Locale.ROOT));
 		assertThat(ddl).contains("unique (" + column.name() + ")");
+	}
+
+	/**
+	 * (v4) auth-design.md §14-2 — {@code refresh_tokens} 수동 DDL(auth-v2.sql) ↔ 엔티티 매핑.
+	 * users 가 두 번 밟은 함정(테이블명 대소문자 · CHAR/VARCHAR)과 같은 축이라 같은 방식으로 고정한다.
+	 * U10(원문 비저장)의 물리 근거 — 컬럼 길이가 해시(64)에 묶여 있으면 원문(가변 길이)은 들어갈 수 없다.
+	 */
+	@Test
+	@DisplayName("refresh_tokens 수동 DDL 이 엔티티 매핑과 어긋나지 않는다")
+	void refresh_tokens_DDL_이_매핑과_일치한다() throws Exception {
+		Column tokenHash = kang20.ytcreator.auth.internal.entity.RefreshToken.class
+			.getDeclaredField("tokenHash").getAnnotation(Column.class);
+		String ddl = Files.readString(Path.of("deploy/sql/auth-v2.sql"), StandardCharsets.UTF_8)
+			.replaceAll("(?m)--.*$", "")   // 주석 제거 — 주석이 "원문을 넣지 마라" 같은 금지어를 담는다
+			.toLowerCase(Locale.ROOT)
+			.replaceAll("\\s+", " ");
+
+		assertThat(ddl).contains("create table refresh_tokens");
+		assertThat(ddl)
+			.as("§3-1 실측 — CHAR 로 쓰면 validate 가 기동을 거부한다. 길이는 SHA-256 hex 고정(U10)")
+			.contains(tokenHash.name() + " varchar(" + tokenHash.length() + ")");
+		assertThat(ddl)
+			.as("UNIQUE 가 해시 조회 키(§14-2)의 근거다")
+			.contains("constraint uk_refresh_tokens_token_hash unique (token_hash)");
+		assertThat(ddl)
+			.as("전체 폐기(U9 — UPDATE WHERE user_id)가 타는 인덱스(round-1-dev.md 판단 12)")
+			.contains("create index ix_refresh_tokens_user_id on refresh_tokens (user_id)");
+		// 물리 FK 금지 — architecture.md "타입화된 기본키" 기본 정책(payment-v1.sql 과 같은 규율)
+		assertThat(ddl).doesNotContain("foreign key");
 	}
 }

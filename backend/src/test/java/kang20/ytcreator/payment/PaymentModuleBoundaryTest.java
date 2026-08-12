@@ -129,21 +129,34 @@ class PaymentModuleBoundaryTest {
 	}
 
 	/**
-	 * §2-1 쟁점 1 — 익명키 수신은 컨트롤러 한 곳뿐이다. 서비스·internal 로 원문이 들어오면
-	 * "즉시 해석해 버린다"는 경계가 무너진다. bootstrap 도 같은 규칙이다(§2-2).
+	 * §2-1 쟁점 1 — 익명키 수신은 한 곳에서 끝난다. 서비스·internal 로 원문이 들어오면
+	 * "즉시 해석해 버린다"는 경계가 무너진다.
+	 *
+	 * <p><b>(auth v4 갱신)</b> 익명키가 게이트를 떠나 부트스트랩 1회 제시로 줄었다(auth.md §5-1) —
+	 * payment 는 익명키를 <b>아예 만지지 않고</b>({@code @CurrentUser UserId} 주입, auth-design.md
+	 * §14-2), 익명키 취급 코드는 {@code BootstrapController}(헤더 수신 + U5 형식 검증) 하나뿐이어야
+	 * 한다. 다루는 타입 표식도 {@code AnonymousAuthentication}(삭제됨)이 아니라 {@code AnonymousKey}
+	 * 계열({@code AnonymousKeyFormat}·헤더 상수)이다.
 	 */
 	@Test
-	@DisplayName("익명키 타입(AnonymousAuthentication)을 다루는 payment 소스는 컨트롤러뿐이다")
-	void 익명키는_컨트롤러에서_끝난다() throws IOException {
+	@DisplayName("익명키를 다루는 payment·bootstrap 소스는 BootstrapController 하나뿐이다")
+	void 익명키는_부트스트랩_컨트롤러에서_끝난다() throws IOException {
 		try (Stream<Path> files = Stream.concat(Files.walk(PAYMENT_SOURCES), Files.walk(BOOTSTRAP_SOURCES))) {
 			List<String> holders = files
 				.filter(path -> path.toString().endsWith(".java"))
-				.filter(path -> read(path).contains("AnonymousAuthentication"))
+				.filter(path -> {
+					String source = read(path);
+					// import(실사용)와 헤더 "리터럴"만 — javadoc 의 {@code ...} 언급은 취급이 아니다
+					return source.contains("import kang20.ytcreator.shared.security.AnonymousKey")
+						|| source.contains("\"X-Anonymous-Key\"");
+				})
 				.map(path -> path.getFileName().toString())
 				.toList();
 
 			assertThat(holders)
-				.containsExactlyInAnyOrder("PaymentController.java", "BootstrapController.java");
+				.as("auth.md §5-1 v4 — 익명키 수신·검증 지점은 부트스트랩 하나다. payment 에 생기면"
+					+ " §2-1 쟁점 1 의 '즉시 해석' 경계가 무너진다")
+				.containsExactlyInAnyOrder("BootstrapController.java");
 		}
 	}
 

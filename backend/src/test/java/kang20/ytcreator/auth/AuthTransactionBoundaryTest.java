@@ -6,6 +6,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import kang20.ytcreator.auth.internal.service.AuthService;
+import kang20.ytcreator.auth.internal.service.support.RefreshTokenWriter;
 import kang20.ytcreator.auth.internal.service.support.UserWriter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,7 +14,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * auth-design.md §6-2 함정 ④ · §6-4 <b>회귀 방지</b>.
+ * auth-design.md §6-2 함정 ④ · §6-4 · <b>(v4) §14-3 트랜잭션 경계</b> — 회귀 방지.
  *
  * <p>§6-4 가 채택한 구조는 "바깥 트랜잭션 없음 + 삽입만 {@code REQUIRES_NEW}" 다.
  * 이 구조가 깨지는 방식은 둘인데, <b>둘 다 H2 에서는 통과하고 운영 MySQL 에서만 터진다</b> —
@@ -26,6 +27,11 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>누가 {@code UserWriter.insert} 를 {@code AuthService} 안으로 합친다 → self-invocation 이라
  *       프록시를 거치지 않아 {@code REQUIRES_NEW} 가 걸리지 않는다 → 함정 ②(rollback-only 오염).</li>
  * </ol>
+ *
+ * <p><b>(v4)</b> §14-3 은 {@code login}·{@code refresh} 도 "트랜잭션 없음"으로 못 박았다 —
+ * 원자성은 트랜잭션 격리가 아니라 <b>조건부 UPDATE 의 영향 행 수</b>가 담당한다(§14-4).
+ * {@code @Transactional} 은 {@code RefreshTokenWriter} 에만 있다(round-1-dev.md 판단 4 —
+ * {@code @Modifying} JPQL 은 트랜잭션 필수라 writer 가 감싼다).
  */
 class AuthTransactionBoundaryTest {
 
@@ -76,5 +82,50 @@ class AuthTransactionBoundaryTest {
 			.doesNotContain("insert", "save", "saveAndFlush");
 
 		assertThat(UserWriter.class).isNotEqualTo(AuthService.class);
+	}
+
+	/**
+	 * (v4) §14-3 — {@code login}·{@code refresh} 는 트랜잭션 <b>없음</b>이다. login 은 등록부가
+	 * 함정 ④를 그대로 물려받고(§6-4), refresh 는 원자성이 조건부 UPDATE 소관이라(§14-4)
+	 * 바깥 트랜잭션이 생기면 그 스냅샷이 재사용 판정(SELECT)을 오염시킨다.
+	 */
+	@Test
+	@DisplayName("AuthService.login·refresh 에는 @Transactional 이 없다 — §14-3 '트랜잭션 없음'")
+	void login_refresh_에는_트랜잭션이_없다() throws Exception {
+		for (Method method : new Method[] {
+				AuthService.class.getDeclaredMethod("login", String.class),
+				AuthService.class.getDeclaredMethod("refresh", String.class)}) {
+			assertThat(method.getAnnotation(Transactional.class))
+				.as("%s — auth-design.md §14-3 은 '트랜잭션 없음'으로 확정했다", method.getName())
+				.isNull();
+			assertThat(method.getAnnotation(jakarta.transaction.Transactional.class)).isNull();
+		}
+	}
+
+	/**
+	 * (v4) §14-2 · round-1-dev.md 판단 4 — <b>{@code @Transactional} 은 writer 에만</b> 있다.
+	 * {@code @Modifying} JPQL(회전·전체 폐기)은 트랜잭션 필수인데 AuthService 는 무TX 이므로,
+	 * writer 메서드가 트랜잭션을 잃으면 refresh 가 <b>런타임에서야</b>
+	 * {@code TransactionRequiredException} 으로 터진다.
+	 */
+	@Test
+	@DisplayName("RefreshTokenWriter 의 쓰기 메서드는 전부 @Transactional 이다")
+	void refresh_writer_쓰기는_전부_트랜잭션이다() throws Exception {
+		Method[] writes = {
+			RefreshTokenWriter.class.getDeclaredMethod("issue", UserId.class, java.time.LocalDateTime.class),
+			RefreshTokenWriter.class.getDeclaredMethod("rotate", String.class, java.time.LocalDateTime.class),
+			RefreshTokenWriter.class.getDeclaredMethod("revokeAllByUserId", UserId.class,
+				java.time.LocalDateTime.class),
+		};
+		for (Method method : writes) {
+			assertThat(method.getAnnotation(Transactional.class))
+				.as("%s — @Modifying JPQL 은 트랜잭션 필수다(auth-design.md §14-2·round-1-dev.md 판단 4)",
+					method.getName())
+				.isNotNull();
+		}
+
+		// 회전도 별도 빈 위임이다 — AuthService 안으로 합치면 self-invocation 으로 TX 가 죽는다(위 ②와 동일)
+		assertThat(Arrays.stream(AuthService.class.getDeclaredFields()).map(Field::getType))
+			.contains(RefreshTokenWriter.class);
 	}
 }

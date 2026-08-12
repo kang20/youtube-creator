@@ -25,7 +25,8 @@ import org.junit.jupiter.api.Test;
  *   <li><b>R1</b> 도메인 모듈 루트에는 공개 계약 {@code *Port} 가 있다.</li>
  *   <li><b>R2</b> {@code internal/service} 직속에는 {@code *Service} 하나뿐이고, 그것은 {@code *Port} 를 구현한다.</li>
  *   <li><b>R3</b> {@code internal/service/support} 의 타입은 전부 {@code @Support} 이고, {@code @Support} 는 거기에만 있다.</li>
- *   <li><b>R4</b> {@code @Support} 는 <b>같은 모듈의 {@code *Service} 만</b> 참조한다.</li>
+ *   <li><b>R4</b> {@code @Support} 는 <b>같은 모듈의 {@code *Service} + 모듈 루트의 게이트 부품(필터·리졸버)만</b>
+ *       참조한다 — 게이트 예외의 근거는 auth-design.md §14-1.</li>
  *   <li><b>R5</b> {@code internal/handler}(컨트롤러 등)는 {@code internal/service} 를 직접 참조하지 않는다 — 포트로만 부른다.</li>
  *   <li><b>R6</b> 구체 {@code *Service} 는 자기 패키지 밖 어디서도 참조되지 않는다 — 밖은 포트로만 부른다.</li>
  * </ol>
@@ -112,13 +113,23 @@ class ArchitectureConventionTest {
 	}
 
 	// ── R4 ─────────────────────────────────────────────────────────────
+	/**
+	 * <b>규약 갱신 이력 (blockers B1 · <a href="../../docs/domain/auth-design.md">auth-design.md §14-1</a>)</b>:
+	 * v4 JWT 전환에서 게이트 부품({@code JwtAuthenticationFilter} 등)이 auth <b>모듈 루트</b>로 왔다 —
+	 * 게이트 부품은 HTTP 어댑터가 아니라 <b>다른 모듈(config)이 조립하는 공개 계약</b>이고,
+	 * 검증 부품({@code JwtSupport} — @Support)을 부르는 것이 그 존재 이유다. 그래서 §14-1 갱신안대로
+	 * 허용 참조자를 <i>"같은 모듈의 *Service + 모듈 루트의 게이트 부품(필터·리졸버)"</i> 로 확장한다.
+	 * 게이트 부품의 판별은 <b>모듈 루트 패키지 + 이름 접미사(Filter·Resolver)</b>다 — internal 의
+	 * 필터·리졸버는 여전히 걸린다(루트 = config 가 조립하는 공개 계약이라는 §14-1 전제가 판별 기준).
+	 */
 	@Test
-	@DisplayName("R4 — @Support 는 같은 모듈의 *Service 만 참조한다")
+	@DisplayName("R4 — @Support 는 같은 모듈의 *Service 와 모듈 루트 게이트 부품(필터·리졸버)만 참조한다")
 	void support_는_service_만_참조한다() throws IOException {
 		List<Path> mainFiles = allMainJava();
 		for (String module : domainModules()) {
 			String serviceName = serviceSimpleName(module);   // 예: PaymentService
-			String supportPkg = "kang20.ytcreator." + module + ".internal.service.support";
+			String modulePkg = "kang20.ytcreator." + module;
+			String supportPkg = modulePkg + ".internal.service.support";
 			Path supportDir = SRC.resolve(module).resolve("internal/service/support");
 
 			for (Path support : javaFiles(supportDir)) {
@@ -131,10 +142,16 @@ class ArchitectureConventionTest {
 					if (!read(other).contains(importLine)) {
 						continue;
 					}
-					assertThat(typeName(other))
-						.as("%s — support(%s)는 같은 모듈 %s 만 참조할 수 있다. %s 가 참조한다",
+					String referrer = typeName(other);
+					boolean isModuleService = serviceName.equals(referrer);
+					// auth-design.md §14-1 — 모듈 루트의 게이트 부품(필터·리졸버)은 허용 참조자다
+					boolean isRootGatePart = packageName(other).equals(modulePkg)
+						&& (referrer.endsWith("Filter") || referrer.endsWith("Resolver"));
+					assertThat(isModuleService || isRootGatePart)
+						.as("%s — support(%s)는 같은 모듈 %s 또는 모듈 루트 게이트 부품(필터·리졸버)만"
+								+ " 참조할 수 있다(auth-design.md §14-1). %s 가 참조한다",
 							module, type, serviceName, other.getFileName())
-						.isEqualTo(serviceName);
+						.isTrue();
 				}
 			}
 		}
