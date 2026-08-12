@@ -162,7 +162,7 @@ operation::payment-subscription-recheck-fail-not-found[snippets='http-response']
 === 토스 웹훅 (서버 전용 — 프론트 무관)
 
 `POST /api/v1/webhooks/toss/payment` — 토스 서버가 구독 상태 변경을 통지한다.
-익명키 게이트 밖이며 **Basic Auth** 로 진위를 검증한다. 프론트가 호출할 일이 없다.
+인증 게이트 밖이며 **Basic Auth** 로 진위를 검증한다. 프론트가 호출할 일이 없다.
 
 operation::payment-webhook-verification[snippets='http-request,http-response']
 operation::payment-webhook-status-changed[snippets='http-request,request-fields,http-response']
