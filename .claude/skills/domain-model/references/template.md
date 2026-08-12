@@ -55,12 +55,15 @@ backend/docs/model/
 
 ### 구성
 
-다이어그램 **2개**만 둔다. 늘리지 않는다.
-
-1. **애그리거트 지도** — 모듈을 `subgraph` 로 묶고, 그 안에 애그리거트를 다시 `subgraph` 로
-2. **통합 ERD** — 전 모듈 엔티티
+| 블록 | 언제 |
+|---|---|
+| **① 애그리거트 지도** (`flowchart`) | 항상 — 전 모듈이 여기 모인다 |
+| **② 통합 ERD** (`erDiagram`) | 도메인 모듈이 하나라도 있으면 |
+| **③ 집계 DTO 구성도** (`classDiagram`) | 집계 컨텍스트가 있을 때. 집계 모듈마다 블록 하나 |
 
 모듈 간 의존 그래프는 여기 그리지 않는다 — Modulith `Documenter` 몫이다.
+
+**집계 컨텍스트는 ② 에 넣지 않는다.** 테이블이 없으므로 넣는 순간 거짓말이 된다.
 
 ### 양식
 
@@ -119,6 +122,80 @@ erDiagram
 
 **ERD 컬럼은 식별자·상태·불변식에 관여하는 것만.** 전 컬럼 나열 금지 — DDL(`backend/deploy/sql/`)이
 정본이다. `createdAt`·`updatedAt` 같은 `BaseTimeEntity` 공통 필드는 생략한다.
+
+---
+
+## 집계 컨텍스트 그리기
+
+**판정**: `@Entity` · 리포지토리가 **0개**이고 다른 모듈의 결과를 합치기만 하는 모듈 (`bootstrap`).
+
+저장소를 갖지 않는 것이 **이 모듈의 정체성**이다. "엔티티가 없어서 못 그리는 모듈"로 취급하지 않는다.
+여기에 엔티티가 생기면 그건 집계가 아니라 새 도메인이다 — **라벨이 그 경계를 지킨다.**
+
+### ① 애그리거트 지도에 구역 추가
+
+- subgraph 라벨에 **`— 집계 컨텍스트`** 를 붙인다
+- 노드 라벨에 **`집계 DTO · 자기 저장소 없음`** 을 명시한다
+- 다른 모듈에서 **무엇을 받아 오는지** 화살표 라벨에 적는다
+
+```
+    subgraph M_BOOT["진입 (bootstrap) — 집계 컨텍스트"]
+        BR["BootstrapResponse<br/>집계 DTO · 자기 저장소 없음"]
+    end
+
+    AG_USER -.->|"LoginResult"| BR
+    PAY -.->|"EntitlementView"| BR
+```
+
+### ② 집계 DTO 구성도
+
+**집계 모듈에서는 DTO 가 곧 모델이다.** 그래서 여기서만 필드를 전부 적는다
+(도메인 모듈 ERD 는 식별자·상태만 적는 것과 반대다 — DTO 는 프론트 계약이라 전부가 의미다).
+
+````markdown
+```mermaid
+classDiagram
+    direction LR
+
+    class BootstrapResponse {
+        <<집계 DTO — 저장소 없음>>
+        +boolean newUser
+        +LocalDateTime registeredAt
+        +AuthTokens auth
+        +EntitlementView entitlement
+    }
+
+    class AuthTokens {
+        <<auth dto>>
+        +String accessToken
+        +String refreshToken
+    }
+
+    class User {
+        <<auth 애그리거트 루트>>
+        +UserId id
+        +LocalDateTime createdAt
+    }
+
+    BootstrapResponse *-- AuthTokens
+    BootstrapResponse ..> User : newUser ← 삽입 여부 · registeredAt ← createdAt
+
+    note for BootstrapResponse "UserId 는 싣지 않는다 — 서버 내부 식별자다"
+```
+````
+
+| 요소 | 규칙 |
+|---|---|
+| `<<...>>` | **출처 모듈**을 표시한다 — `<<auth dto>>` · `<<payment dto>>` · `<<auth 애그리거트 루트>>` |
+| `*--` | 중첩 DTO (합성) |
+| `..>` + 라벨 | **필드가 어디서 왔는가** — `registeredAt ← User.createdAt`. **이게 집계 그림의 핵심 정보다** |
+| `note for` | 계약상 **일부러 뺀 필드** (내부 식별자 미노출 등) |
+
+**참고용으로 끌어온 다른 도메인 엔티티는 필드를 다 적지 않는다** — 출처로 지목된 필드만.
+그 엔티티의 전모는 ERD 가 정본이다.
+
+⚠️ `classDiagram` 주의: `..>` 라벨은 **따옴표 없이** 쓴다(따옴표가 그대로 출력된다).
+라벨 안에 `:` 를 넣지 않는다(구분자와 헷갈린다). `←`·`·` 는 안전하다.
 
 ---
 
@@ -256,6 +333,9 @@ sequenceDiagram
 | 애그리거트 경계를 실선으로 그림 | JOIN 해도 되는 것처럼 읽힌다 |
 | 책임 칸에 "결제 정보를 저장한다" | 클래스명 반복이다. **무엇을 지키는가**를 써야 한다 |
 | 요청도 없이 부연 문서를 "겸사겸사" 만듦 | 기본 산출물은 `master.md` 하나다. 발견은 보고로 전달하고 제안까지만 |
+| 집계 컨텍스트를 ERD 에 넣음 | 테이블이 없다. 있는 것처럼 보이면 거짓말이다 |
+| 집계 모듈 라벨에서 "집계"를 뺌 | 저장소 없음이 그 모듈의 정체성이다. 라벨이 경계를 지킨다 |
+| 집계 DTO 구성도에 필드 출처를 안 적음 | 출처가 빠지면 그냥 record 선언을 옮겨 적은 것에 불과하다 |
 | 내용도 없이 `-state.md` 를 만듦 | 빈 껍데기가 늘면 아무도 안 읽는다 |
 | API 요청/응답 JSON 을 옮겨 적음 | api-spec 이 정본. 링크만 |
 | 🔶 를 임의로 확정 | CLAUDE.md 위반. 사용자에게 묻는다 |

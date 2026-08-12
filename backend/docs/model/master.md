@@ -11,9 +11,13 @@
   ERD 컬럼은 식별자·상태·불변식에 관여하는 것만. 전 컬럼은 backend/deploy/sql/ 이 정본.
   createdAt·updatedAt(BaseTimeEntity 공통)은 생략한다.
 
+  집계 컨텍스트 = 엔티티·저장소가 없고 다른 모듈의 결과만 합치는 모듈.
+  ERD 에 나오지 않고, 대신 집계 DTO 구성도로 그린다. 필드 출처를 화살표 라벨에 적는다.
+
   구역별 근거 커밋 · 갱신일
-    auth    : d2d5e26 · 2026-08-13
-    payment : (미작성 — /domain-model payment 로 추가)
+    auth      : d2d5e26 · 2026-08-13
+    bootstrap : 37d31a6 · 2026-08-13   (집계 컨텍스트 — 엔티티 없음)
+    payment   : (미작성 — /domain-model payment 로 추가)
 
   부연 문서({module}-notes/-state/-flow.md)는 요청 시에만 만든다. 현재 없음.
 -->
@@ -28,7 +32,15 @@ flowchart TB
         end
     end
 
-    AG_USER -.->|"UserId 값으로만 전달"| EXT["payment · bootstrap<br/>(다른 모듈)"]
+    subgraph M_BOOT["진입 (bootstrap) — 집계 컨텍스트"]
+        BR["BootstrapResponse<br/>집계 DTO · 자기 저장소 없음"]
+    end
+
+    PAY["결제·이용권 (payment)<br/>구역 미작성"]
+
+    AG_USER -.->|"LoginResult"| BR
+    PAY -.->|"EntitlementView"| BR
+    AG_USER -.->|"UserId 값으로만 전달"| PAY
 ```
 
 ```mermaid
@@ -48,4 +60,48 @@ erDiagram
         LocalDateTime expires_at "발급 +14일"
         LocalDateTime revoked_at "NULL = 활성"
     }
+```
+
+```mermaid
+classDiagram
+    direction LR
+
+    class BootstrapResponse {
+        <<집계 DTO — 저장소 없음>>
+        +boolean newUser
+        +LocalDateTime registeredAt
+        +AuthTokens auth
+        +EntitlementView entitlement
+    }
+
+    class AuthTokens {
+        <<auth dto>>
+        +String accessToken
+        +String refreshToken
+    }
+
+    class EntitlementView {
+        <<payment dto — 구역 미작성>>
+    }
+
+    class User {
+        <<auth 애그리거트 루트>>
+        +UserId id
+        +String anonymousKeyHash
+        +LocalDateTime createdAt
+    }
+
+    class RefreshToken {
+        <<auth 구성 엔티티>>
+        +String tokenHash
+        +LocalDateTime expiresAt
+    }
+
+    BootstrapResponse *-- AuthTokens
+    BootstrapResponse *-- EntitlementView
+
+    BootstrapResponse ..> User : newUser ← 삽입 여부 · registeredAt ← createdAt
+    AuthTokens ..> RefreshToken : refreshToken 원문은 미저장 · tokenHash 만 남는다
+
+    note for BootstrapResponse "UserId 는 싣지 않는다 — 서버 내부 식별자다"
 ```
