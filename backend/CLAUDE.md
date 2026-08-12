@@ -13,7 +13,7 @@ Spring Boot 4 · **Spring Modulith** · Java 25 · Gradle(Kotlin DSL) · JPA · 
 - **테스트**: 커버리지 목표 100%(게이트 LINE 95/BRANCH 90), 컨트롤러 테스트 = REST Docs → [docs/rule/testing.md](docs/rule/testing.md)
 - **API 문서**: Spring REST Docs, HTML 만 main push → [docs/rule/rest-docs.md](docs/rule/rest-docs.md)
 - **에러 처리**: ErrorCode enum + BusinessException → [docs/rule/error-handling.md](docs/rule/error-handling.md)
-- **인증 게이트**: 익명키 필터 체인 — 부품은 `shared/security`, 조립은 `config` → [docs/security/security-chain.md](docs/security/security-chain.md)
+- **인증 게이트**: JWT Bearer (v4) — 부품은 `auth` 모듈 루트, 조립은 `config`. 익명키는 부트스트랩(로그인) 전용 → [docs/domain/auth.md](docs/domain/auth.md) §4-2 · auth-design §14
 - **배포/인프라**: OCI VM 2대 + 블루-그린 → [docs/deploy.md](docs/deploy.md), 스킬 `/infra`
 - **모니터링**: 기존 모니터링 서버에 얹는다 → [monitoring/onboarding/README.md](monitoring/onboarding/README.md)
 
@@ -23,10 +23,13 @@ Spring Boot 4 · **Spring Modulith** · Java 25 · Gradle(Kotlin DSL) · JPA · 
 
 | 모듈 | 책임 | 허용 의존 |
 |---|---|---|
-| `shared` | 공용 예외·에러코드·감사시각·익명키 인증 (OPEN) | — |
-| `config` | 전역 스프링 설정(보안·CORS·Clock·Auditing) (OPEN) | `shared` |
+| `shared` | 공용 예외·에러코드·감사시각·타입 ID 공통 부모·`@Support` (OPEN) | — |
+| `config` | 전역 스프링 설정(보안 조립·CORS·Clock·Auditing) (OPEN) | `shared`, `auth` |
+| `auth` | 익명키 로그인·JWT 발급/게이트/갱신. 노출: `AuthPort`·`UserId`·게이트 부품 | `shared` |
+| `payment` | 결제·이용권 (지급·소모·웹훅·STALE). 노출: `Payment*Port`·`UsageTicketId` | `shared`, `auth` |
+| `bootstrap` | 진입 집계(로그인+이용권 합성) — 저장소 없음 | `shared`, `auth`, `payment` |
 
-도메인 모듈은 아직 없다. 첫 모듈은 `/b-usecase` → `/b-develop-design` → 구현 순서로 만든다.
+새 도메인은 `/b-usecase` → `/b-develop-design` → 구현 순서로 만든다.
 
 ## 토스 인앱 MCP 활용
 

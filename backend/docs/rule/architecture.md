@@ -60,9 +60,12 @@ Modulith 는 "다른 모듈이 `internal` 을 참조하는가"만 본다. 그 **
 대상은 **도메인 모듈**(= `internal/service` 를 가진 모듈: auth·payment). `shared`·`config`(OPEN 공용)와
 `bootstrap`(저장소 없는 집계 어댑터)은 예외다.
 
-1. **공개 계약은 `*Port` 인터페이스뿐이다.** 모듈 루트에는 **책임별 포트**(`{Module}{책임}Port` —
+1. **공개 계약은 모듈 루트에만 둔다** — **책임별 포트**(`{Module}{책임}Port` —
    `PaymentReaderPort`·`PaymentConsumePort`·`PaymentPurchasePort`·`PaymentWebhookPort`, `AuthPort`)와
-   타입 ID 만 둔다. 네이밍만으로 "공개 인터페이스이며 어떤 책임인지"가 드러난다.
+   타입 ID, 그리고 **(auth v4) 다른 모듈(config)이 조립하는 게이트 부품**
+   (`JwtAuthenticationFilter`·`TokenAuthenticationEntryPoint`·`UserAuthentication`·
+   `CurrentUser(ArgumentResolver)`) 이다 — 게이트 부품은 HTTP 어댑터가 아니라 공개 계약이다
+   (auth-design §14-1). 네이밍만으로 "공개 인터페이스이며 어떤 책임인지"가 드러난다.
    포트는 **소비자·책임 단위**로 자른다 — 한 포트에 모든 메서드를 몰면 "누가 무엇을 쓰는가"가 흐려진다.
 2. **`{Module}Service` 는 `internal/service` 직속의 유일한 클래스**이고, 그 포트들을 `implements` 한다.
    HTTP 전용 흐름(컨트롤러만 부르는 메서드)도 포트에 얹어 노출하되, 그 포트의 실질 소비자는
@@ -70,8 +73,10 @@ Modulith 는 "다른 모듈이 `internal` 을 참조하는가"만 본다. 그 **
 3. **구체 `*Service` 는 아무도 직접 참조하지 않는다** — 밖(다른 모듈)도, 안(컨트롤러)도 **포트로만** 부른다.
    Boot 기본이 CGLIB(클래스 프록시)라 포트가 있어도 `@Transactional` 프록시 빈이 정상 주입된다.
 4. **`internal/service` 밑에서 Service 를 뺀 나머지는 전부 `support/` 로 내리고 `@Support` 를 단다.**
-   `@Support`({@code shared/support}) 의 계약은 하나다: **같은 모듈의 `*Service` 만 support 를 참조한다.**
-   컨트롤러·리포지토리·엔티티·다른 support 는 support 를 못 부른다 — 오케스트레이션의 단일 주인은 Service 다.
+   `@Support`({@code shared/support}) 의 계약: **같은 모듈의 `*Service` 와 모듈 루트의 게이트 부품
+   (접미사 `Filter`·`Resolver` — auth v4)만 support 를 참조한다.** 컨트롤러·리포지토리·엔티티·다른
+   support 는 support 를 못 부른다 — 오케스트레이션의 단일 주인은 Service 이고, 게이트 부품의 예외는
+   검증 부품(JwtSupport)을 부르는 것이 그 존재 이유라서다(auth-design §14-1).
 5. **컨트롤러는 `internal/handler/inbound/` 에 두고, `internal/service` 를 직접 참조하지 않는다** —
    포트(모듈 루트)로만 부른다. 컴포넌트 스캔은 패키지와 무관해 매핑·REST Docs 산출물에 영향이 없다.
 6. **레이어를 안 가리는 모듈 내부 공용 유틸**(예: `OrderIdMask` — service·client 양쪽이 쓰는 로그 마스킹)은

@@ -19,7 +19,7 @@
 |---|---|---|
 | 앱 로깅 코드 | `GlobalExceptionHandler` 단 한 곳 | 정상 요청·필터 거부는 기록 0 |
 | 봇 스캔 404 | 매핑 없는 경로가 catch-all(`Exception.class`)로 | **ERROR+스택트레이스+응답 500(COMMON_002)** — 레벨·상태코드 둘 다 버그 |
-| `AnonymousKeyFilter.writeError` | 400 직접 응답, 로그 없음 | 필터 거부 = 관측 사각지대 |
+| `TokenAuthenticationEntryPoint(구 AnonymousKeyFilter.writeError — v4 대체)` | 400 직접 응답, 로그 없음 | 필터 거부 = 관측 사각지대 |
 | logging 설정 | 없음 (yml `logging:` 0, logback xml 0) | 백지 — 충돌 없이 신설 가능 |
 | 컨테이너 로그 | compose 3종 전부 `logging:` 옵션 없음 | json-file **무제한 누적** — 디스크 고갈 리스크 |
 | Caddy | `log` 지시자 없음 | HTTP 액세스 로그 부재 |
@@ -54,7 +54,7 @@ public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException e
 ```
 
 - `ErrorCode.RESOURCE_NOT_FOUND` = `COMMON_004`(404) 신설 → **api-spec.md 공통 에러 선반영**(계약 변경 규칙) + REST Docs 404 스니펫.
-- 함께: `HttpRequestMethodNotSupportedException` → 405 `COMMON_005`(WARN), `AnonymousKeyFilter.writeError`에 WARN 1줄(사각지대 해소).
+- 함께: `HttpRequestMethodNotSupportedException` → 405 `COMMON_005`(WARN), `TokenAuthenticationEntryPoint(구 AnonymousKeyFilter.writeError — v4 대체)`에 WARN 1줄(사각지대 해소).
 
 ### 3.3 MDC 계약 (정본) — `requestId` + 식별 컨텍스트
 
@@ -164,7 +164,7 @@ services:
 - [ ] `GlobalExceptionHandler` 404/405 핸들러 + `ErrorCode` COMMON_004/005 + api-spec.md 선반영 + REST Docs 스니펫 → 배포 (monitoring.md HighErrorRate의 선행 조건)
 
 ### Phase 1 — 레벨·MDC·로테이션
-- [ ] `AnonymousKeyFilter.writeError` WARN 1줄
+- [ ] `TokenAuthenticationEntryPoint(구 AnonymousKeyFilter.writeError — v4 대체)` WARN 1줄
 - [ ] `common/logging/MdcLoggingFilter` — **FilterRegistrationBean 서블릿 등록(HIGHEST_PRECEDENCE)** + `logging.pattern.level` + `logging.level.root: INFO`(prod)
 - [ ] 컨트롤러/필터 테스트 + ArchUnit 확인
 - [ ] compose 3종 로테이션 앵커(§5.1) + **Pi scp·재생성 적용**

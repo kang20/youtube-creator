@@ -277,8 +277,8 @@ AnonymousKeyEntryPoint implements AuthenticationEntryPoint
   타입화된 기본키 패턴 채택으로 **다른 모듈이 auth 의 PK 를 들고 다니는 것이 바로 목표**가 됐다.
   단 **원시 `Long` 이 아니라 `UserId` 로 타입화해서** 담는다 — 혼용을 컴파일러가 잡는다.
   첫 소비자는 `payment`(소유권 FK — payment-design §2-1 쟁점 1)와 `bootstrap`(entitlement 조회 키)이다.
-  `User` 엔티티의 `@Id` 는 **원시 `Long` 을 유지**하고 경계(Registration)에서만 래핑한다 —
-  기구현·기배포 코드라 내부 표현 변경은 이득 없이 churn 이다.
+  ~~`User` 엔티티의 `@Id` 는 원시 `Long` 을 유지한다~~ **(08-12 재결정 — `@Id` 도 `UserId` 로
+  타입화했다.** youngZZ 선례 `@Id @GeneratedValue @JavaType` 조합. `users` DDL 무변경.)
 - 게이트 부품이 `auth` 가 아니라 `shared/security` 인 이유는 §2-1 쟁점 3.
 
 ---
@@ -712,9 +712,12 @@ youngZZ 는 `common.security → domain` 역참조를 규칙에 구멍을 뚫어
 
 - **게이트 부품(필터·엔트리포인트·인증 토큰 타입·`@CurrentUser` 리졸버)을 auth 모듈 루트에 노출**하고
   `config`(SecurityConfig·WebConfig)가 조립한다 — `config.allowedDependencies += "auth"`.
-- ⚠️ **ArchitectureConventionTest R1(루트에는 *Port) 과 충돌** — 규약을 갱신한다:
-  *"모듈 루트 = 공개 계약(*Port · 타입 ID · 게이트 부품)"*. 게이트 부품은 HTTP 어댑터가 아니라
-  **다른 모듈(config)이 조립하는 공개 계약**이므로 루트가 맞다.
+- ⚠️ **ArchitectureConventionTest 와 충돌 — 규약을 갱신한다** (구현 라운드 1 실측 정정: 예상은
+  R1 이었으나 R1 은 `*Port` 존재만 단언해 통과하고, 실제 충돌은 **R4**("@Support 는 *Service 만 참조")다 —
+  `JwtAuthenticationFilter`(루트 게이트 부품) → `JwtSupport`(@Support) 참조).
+  **갱신안**: R4 의 허용 참조자를 *"같은 모듈의 *Service + 모듈 루트의 게이트 부품(필터·리졸버)"* 로 확장.
+  게이트 부품은 HTTP 어댑터가 아니라 **다른 모듈(config)이 조립하는 공개 계약**이므로 루트가 맞고,
+  검증 부품(JwtSupport)을 부르는 것이 그 존재 이유다.
 - `shared/security` 에 남는 것: `AnonymousKeyFormat`(U5 — bootstrap 이 여전히 익명키를 받는다).
   **삭제**: `AnonymousKeyFilter` · `AnonymousAuthentication` · `AnonymousKeyEntryPoint`
   (Bearer 축으로 대체 — 병행 없음이 확정이라 잔존 이유가 없다).
@@ -743,6 +746,7 @@ youngZZ 는 `common.security → domain` 역참조를 규칙에 구멍을 뚫어
 | `shared/exception/ErrorCode.java` | `AUTH_004`(401 만료)·`AUTH_005`(401 갱신 무효) 추가 | auth.md §7 |
 | `backend/deploy/sql/auth-v2.sql` | **신규 DDL** — `refresh_tokens` (BIGINT PK·user_id BIGINT·token_hash VARCHAR(64) UNIQUE·expires_at·revoked_at NULL·감사시각). 물리 FK 없음 | 배포 전 수동 적용 |
 | `build.gradle.kts` | jjwt-api·impl·jackson 0.12.x | — |
+| `src/docs/asciidoc/` | **(리뷰 🔴 반영 신설)** `auth.adoc`(refresh 계약) + `common.adoc` 인증 절 Bearer 재작성 + `bootstrap.adoc` v4 + `index.adoc` include | 프론트 계약 공표 |
 
 ### 14-3. 흐름 (의사코드)
 
@@ -776,7 +780,7 @@ refresh(rawToken):                            -- 트랜잭션 없음. 원자성�
 |---|---|
 | `JwtSupportTest` | 발급→파싱 라운드트립 · 만료 판정(Clock 고정) · 서명 위조 거부 · 키 미설정 fail-fast |
 | `RefreshRotationTest` | 회전(구 토큰 즉시 무효) · **재사용 → 전체 폐기**(U9) · 만료 · 해시 저장(원문 부재 — U10) |
-| `RefreshConcurrencyTest` (비TX) | 같은 refresh 동시 N회 → **정확히 1회 성공**, 활성 토큰 정확히 1+1개 |
+| `RefreshConcurrencyTest` (비TX) | 같은 refresh 동시 N회 → **새 쌍 수령 정확히 1회 + 원본 폐기 + 활성 ≤1** — ⚠️ (구현 정정) 재사용 판정 SELECT 가 회전 UPDATE 앞이라, 동시 패자가 승자 커밋 후 조회하면 재사용 오검지 → 전체 폐기로 흐를 수 있다. 피해 = 재로그인뿐이라 수용 |
 | `SecurityGateTest` (개정) | Bearer 없음 `AUTH_001` / 위조 `AUTH_002` / 만료 `AUTH_004` / 정상 200 · 공개 경로 무영향 |
 | `AuthTokenControllerTest` (REST Docs) | `auth-refresh` · `auth-refresh-fail-invalid`(AUTH_005) |
 | `BootstrapControllerTest` (개정) | 응답 `auth{}` 동봉 · 익명키 형식 위반 `AUTH_002` |

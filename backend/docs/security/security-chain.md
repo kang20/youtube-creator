@@ -1,3 +1,8 @@
+> ⚠️ **이 문서는 v3 이전(익명키 필터 체인) 기준이다 — auth v4(JWT 전환, 2026-08-12)로 대체됐다.**
+> 현행 정본: [auth.md](../domain/auth.md) §4-2 · [auth-design.md](../domain/auth-design.md) §14.
+> `AnonymousKeyFilter`·`AnonymousAuthentication`·`AnonymousKeyEntryPoint` 는 삭제됐고
+> `JwtAuthenticationFilter`·`UserAuthentication`·`TokenAuthenticationEntryPoint`(auth 모듈 루트)가 대체한다.
+
 # 익명키 인증 게이트 — 구조
 
 > **범위**: 요청이 어떻게 인증되고 어디서 막히는가. **결정의 근거는 여기 없다** —
