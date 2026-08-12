@@ -687,8 +687,107 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 | 버전 | 대응 유스케이스 | 날짜 | 설계 변경 | 마이그레이션 |
 |---|---|---|---|---|
 | v2 | auth.md **v2** | 08-07 | §5-2 공개 경로 `~~/actuator/health~~ → /actuator/**` · §5-2/§7 `.cors()` 추가 · **§3-2 신설 — 익명키를 SHA-256 해시로 저장** · §4 `+AnonymousKeyHasher` · §12-2 해소 · §12-4 신설 | **없음 — 아직 배포 전이고 `users` 행이 0개다.** `deploy/sql/auth-v1.sql` 을 컬럼 `anonymous_key_hash VARCHAR(64)` 로 **다시 쓰면 끝난다**(ALTER 아님) |
+| **v4** | auth.md **v4** | 08-12 | **JWT 전환** — §14 부록. 게이트 소유 auth 로 이관(쟁점 3 번복) · JwtSupport·RefreshToken·refresh 엔드포인트 · @CurrentUser 리졸버 · 익명키 필터 3부품 삭제 | refresh_tokens 신규 — deploy/sql/auth-v2.sql (배포 전 수동 적용) |
 | **v3** | auth.md v2 (HTTP 계약 무변경 — auth.md v3 는 bootstrap 스키마 건이며 별도) | 08-11 | **타입화된 기본키 패턴 채택**([architecture.md](../rule/architecture.md) 정본) — §4 `+UserId`·`+UserIdJavaType`(모듈 루트) · `Registration` 에 `userId` 추가(**"id 미포함" 결정 번복**) · §3-2 해시 확산 예고 정정 · §2-2 subscription 키 방식 확정(UserId 참조) · §6-5 호출자 재검토(가드 불채택 유지). 발단·첫 소비자: payment-design §2-1 쟁점 1 | **없음** — `users` 스키마 무변경(`@Id` 는 Long 유지, 경계에서만 래핑). 코드 반영은 payment 라운드 `feat(auth)` 커밋 |
 
 - v2 는 전부 **구현 라운드에서 실측으로 드러난 것**이다(blockers B1·B2·B4). 설계 검토만으로는 안 나왔다.
 - ⚠️ **해시 저장을 지금 하는 이유가 이 표에 있다** — 행이 0개인 지금은 마이그레이션이 “없음”이지만,
   배포 후에는 전 행 재계산 + 원문 폐기 절차가 붙는다. **되돌리기 비용이 비대칭이다.**
+
+---
+
+## 14. v4 부록 — JWT 전환 설계 (2026-08-12 · 대응 auth.md v4)
+
+> 정본 요구: [auth.md](./auth.md) v4 (U7~U10 · §4-2 · §5-1·5-2·5-5 · §7). 여기는 설계만.
+> youngZZ 인증 구조(필터→principal→리졸버)를 뼈대로 가져오되, **매 요청 DB 조회 자리를
+> JWT 서명 검증으로 대체**한다. youngZZ 자체에는 JWT 가 없다(2026-06 에 폐기한 이력 있음) —
+> 그들의 리졸버·필터 패턴 + 우리의 토큰 층이다.
+
+### 14-1. 쟁점 — 게이트 부품의 소유가 auth 로 넘어간다 (§2-1 쟁점 3 번복)
+
+v1 쟁점 3 은 게이트 부품을 `shared/security` 에 뒀다 — *"게이트는 전 도메인 공통이지 auth 의
+소유물이 아니다"*. **JWT 가 그 근거를 뒤집는다**: 토큰 발급·검증·회전은 명백히 auth 도메인이다.
+youngZZ 는 `common.security → domain` 역참조를 규칙에 구멍을 뚫어 허용했지만, 우리는
+`shared → auth` 가 순환(auth→shared 기존)이라 **불가능**하다. 남는 답은 하나다:
+
+- **게이트 부품(필터·엔트리포인트·인증 토큰 타입·`@CurrentUser` 리졸버)을 auth 모듈 루트에 노출**하고
+  `config`(SecurityConfig·WebConfig)가 조립한다 — `config.allowedDependencies += "auth"`.
+- ⚠️ **ArchitectureConventionTest R1(루트에는 *Port) 과 충돌** — 규약을 갱신한다:
+  *"모듈 루트 = 공개 계약(*Port · 타입 ID · 게이트 부품)"*. 게이트 부품은 HTTP 어댑터가 아니라
+  **다른 모듈(config)이 조립하는 공개 계약**이므로 루트가 맞다.
+- `shared/security` 에 남는 것: `AnonymousKeyFormat`(U5 — bootstrap 이 여전히 익명키를 받는다).
+  **삭제**: `AnonymousKeyFilter` · `AnonymousAuthentication` · `AnonymousKeyEntryPoint`
+  (Bearer 축으로 대체 — 병행 없음이 확정이라 잔존 이유가 없다).
+
+### 14-2. 모듈 매핑 (신규·변경)
+
+| 위치 | 산출물 | 비고 |
+|---|---|---|
+| `auth/AuthPort.java` | **확장** — `LoginResult login(String anonymousKey)` · `TokenPair refresh(String refreshToken)` (기존 `register` 는 `login` 으로 흡수) | 소비자: bootstrap·AuthTokenController |
+| `auth/dto/LoginResult.java` | `record(newUser, registeredAt, userId, accessToken, refreshToken)` | bootstrap 이 HTTP 응답으로 변환(`userId` 비노출 유지) |
+| `auth/dto/TokenPair.java` | `record(accessToken, refreshToken)` | refresh 응답 |
+| `auth/UserAuthentication.java` | **신규** — `AbstractAuthenticationToken`, principal = `UserId`, credentials = null | youngZZ `AnonymousAuthentication` 동형 |
+| `auth/JwtAuthenticationFilter.java` | **신규** — Bearer 파싱 → `JwtSupport` 검증 → 성공 시 `UserAuthentication` 주입, 실패 시 **거부하지 않고** 사유를 request attribute 로 (v1 쟁점 2 원칙 유지) | 공개 경로에서는 attribute 가 버려진다 |
+| `auth/TokenAuthenticationEntryPoint.java` | **신규** — attribute → `AUTH_001`(없음)/`AUTH_002`(무효)/`AUTH_004`(만료) 401 본문 직접 작성 | v1 쟁점 1 패턴 그대로 |
+| `auth/CurrentUser.java` + `auth/CurrentUserArgumentResolver.java` | **신규** — `@CurrentUser UserId` 파라미터 주입. **인가는 하지 않는다**(default-deny 체인이 함) — youngZZ 와 달리 주입 전용 | WebConfig 가 등록 |
+| `auth/internal/service/AuthService.java` | login(=기존 register + 토큰 발급) · refresh 오케스트레이션 | R2 준수 — 유일 *Service 유지 |
+| `auth/internal/service/support/JwtSupport.java` | **신규 @Support** — 발급·파싱·서명 검증 (jjwt 0.12.x). 키: `ytcreator.auth.jwt.secret` 환경 변수, 미설정 시 **기동 실패**(fail-fast — mTLS 게이트와 같은 규율) | 30분 상수 |
+| `auth/internal/service/support/RefreshTokenWriter.java` | **신규 @Support** — 발급(SecureRandom 256bit→Base64url, SHA-256 해시 저장)·**원자 회전**·재사용 전체 폐기 | §14-4 |
+| `auth/internal/entity/RefreshToken.java` | **신규** — id(Long)·userId(`UserId` @JavaType)·tokenHash(UNIQUE·64)·expiresAt·revokedAt | 원문 비저장(U10) |
+| `auth/internal/handler/outbound/repository/RefreshTokenRepository.java` | **신규** — 해시 조회 · 조건부 회전 UPDATE · userId 전체 폐기 | JPQL 만 |
+| `auth/internal/handler/inbound/AuthTokenController.java` | **신규** — `POST /api/v1/auth/refresh` (R5 준수 — AuthPort 로만) | 게이트 밖(공개 열거) |
+| `config/SecurityConfig.java` | **변경** — 익명키 필터 → `JwtAuthenticationFilter` + `TokenAuthenticationEntryPoint`. 공개 경로 +`/api/v1/auth/refresh`. **default-deny 유지**(youngZZ 의 permitAll+리졸버 인가를 따르지 않는다 — 어노테이션 누락 = 조용한 공개 함정 회피) | `allowedDependencies` 에 auth |
+| `config/WebConfig.java` | **변경** — `CurrentUserArgumentResolver` 등록 | 〃 |
+| `bootstrap/BootstrapController.java` | **변경** — `X-Anonymous-Key` 헤더 직접 수신(공개 경로. `AnonymousKeyFormat` 으로 U5 검증, 위반 시 `AUTH_002`) → `AuthPort.login` → 응답에 `auth{}` 동봉 | youngZZ `/v1/me` 동형(게이트 밖 발급 지점) |
+| `payment/.../PaymentController.java` | **변경** — `AnonymousAuthentication`+`authPort.register` 반복 제거 → **`@CurrentUser UserId userId`** | `AuthPort` 의존 소멸 |
+| `shared/exception/ErrorCode.java` | `AUTH_004`(401 만료)·`AUTH_005`(401 갱신 무효) 추가 | auth.md §7 |
+| `backend/deploy/sql/auth-v2.sql` | **신규 DDL** — `refresh_tokens` (BIGINT PK·user_id BIGINT·token_hash VARCHAR(64) UNIQUE·expires_at·revoked_at NULL·감사시각). 물리 FK 없음 | 배포 전 수동 적용 |
+| `build.gradle.kts` | jjwt-api·impl·jackson 0.12.x | — |
+
+### 14-3. 흐름 (의사코드)
+
+```
+login(anonymousKey):                          -- 트랜잭션 없음(§6-4 전제 유지 — 등록 경로가 그대로다)
+  registration = 기존 register 로직 (멱등·경쟁 흡수)
+  access  = jwtSupport.issue(userId)                       -- 30분, sub=userId
+  refresh = refreshTokenWriter.issue(userId)               -- @Transactional: INSERT(해시)
+  return LoginResult(..., access, refresh)
+
+refresh(rawToken):                            -- 트랜잭션 없음. 원자성은 조건부 UPDATE 가 담당
+  hash = SHA-256(rawToken)
+  row = repository.findByTokenHash(hash)
+  없음 → AUTH_005
+  row.revokedAt != null → repository.revokeAllByUserId(row.userId) → AUTH_005   -- 재사용 감지(U9)
+  row 만료 → AUTH_005
+  회전 = repository.revokeIfActive(hash, now)              -- UPDATE ... SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL
+  회전 == 0 → AUTH_005                                     -- 동시 갱신 경쟁 패배 (한쪽만 성공)
+  return TokenPair(jwtSupport.issue(row.userId), refreshTokenWriter.issue(row.userId))
+```
+
+### 14-4. 동시성 — 같은 refresh 동시 2회 제출
+
+**조건부 UPDATE 한 방**(payment-design §6-4 와 같은 패턴): `revoked_at IS NULL` 조건의 영향 행 수가
+곧 판정이다. 승자만 새 쌍을 받고 패자는 `AUTH_005` → 프론트가 재로그인한다(비용 0).
+락도 격리 수준 가정도 없다 — H2·MySQL 동일.
+
+### 14-5. 테스트 계획 (증분)
+
+| 테스트 | 핵심 |
+|---|---|
+| `JwtSupportTest` | 발급→파싱 라운드트립 · 만료 판정(Clock 고정) · 서명 위조 거부 · 키 미설정 fail-fast |
+| `RefreshRotationTest` | 회전(구 토큰 즉시 무효) · **재사용 → 전체 폐기**(U9) · 만료 · 해시 저장(원문 부재 — U10) |
+| `RefreshConcurrencyTest` (비TX) | 같은 refresh 동시 N회 → **정확히 1회 성공**, 활성 토큰 정확히 1+1개 |
+| `SecurityGateTest` (개정) | Bearer 없음 `AUTH_001` / 위조 `AUTH_002` / 만료 `AUTH_004` / 정상 200 · 공개 경로 무영향 |
+| `AuthTokenControllerTest` (REST Docs) | `auth-refresh` · `auth-refresh-fail-invalid`(AUTH_005) |
+| `BootstrapControllerTest` (개정) | 응답 `auth{}` 동봉 · 익명키 형식 위반 `AUTH_002` |
+| 기존 컨트롤러 테스트 전부 | 헤더를 Bearer 로 전환 — `ControllerTest` 베이스에 토큰 발급 헬퍼 |
+| 삭제 | `AnonymousKeyFilterTest` · `AnonymousKeyEntryPointTest` · `AnonymousAuthenticationTest` (대체 부품의 테스트가 승계) |
+
+### 14-6. 의도적으로 수용한 것
+
+- **강제 폐기가 access 수명(30분)만큼 지연된다** — 밴 기능 자체가 MVP 밖. 필요해지면 youngZZ 처럼
+  **리졸버에 DB 게이트**(쓰기 메서드 한정)를 붙인다 — 토큰에 상태를 넣지 않는다.
+- **부트스트랩 재호출마다 refresh 행이 쌓인다** — 다기기 정상 케이스와 구분 불가(auth.md §5-2).
+  만료 14일이 자연 정리. 정리 배치는 백로그.
+- **JWT 는 익명키 진위 문제를 해결하지 않는다** — 최초 발급 시점의 "제시자=소유자" 가정은
+  v1 §4-1 리스크 수용 그대로다.
