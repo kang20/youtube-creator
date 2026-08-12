@@ -4,9 +4,9 @@
  *
  * <p>이 모듈은 <b>"이 사용자가 무엇을 쓸 수 있는가"</b>에 단일 권위를 갖는다 — 사용자가 누구인지도,
  * 작업이 무엇인지도 모른다(§2). 식별에 쓰는 것은 auth 가 노출한
- * {@link kang20.ytcreator.auth.UserId} 뿐이며, <b>익명키를 저장·식별에 쓰지 않는다</b> —
- * 익명키 수신은 {@code internal.handler.inbound.PaymentController} 한 곳뿐이고 즉시
- * {@code UserId} 로 해석해 버린다(§2-1 쟁점 1).
+ * {@link kang20.ytcreator.auth.UserId} 뿐이며, <b>익명키를 아예 받지 않는다</b>(auth v4 — JWT 전환) —
+ * 요청 주체는 게이트가 확정하고 {@code @CurrentUser} 리졸버가 컨트롤러에 주입한다
+ * (auth-design.md §14-2. §2-1 쟁점 1 의 "즉시 해석" 책임이 게이트로 올라갔다).
  *
  * <p>모듈 밖 진입은 <b>루트의 {@code *Port} 인터페이스가 전부</b>다(2026-08-12 재조직) —
  * {@link kang20.ytcreator.payment.PaymentReaderPort}(조회 — bootstrap·자기 컨트롤러)·

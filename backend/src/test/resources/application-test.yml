@@ -21,3 +21,10 @@ spring:
 logging:
   level:
     org.hibernate.orm.jdbc.bind: trace
+
+# JWT 서명 키 — 테스트 전용 값. HS256 이라 32바이트(256bit) 이상이어야 한다(짧으면 WeakKeyException 으로
+# 기동 실패 — JwtSupport fail-fast, auth-design.md §14-2). 운영 키와 무관한 공개 가능 문자열이다.
+ytcreator:
+  auth:
+    jwt:
+      secret: test-only-hs256-secret-0123456789abcdef!

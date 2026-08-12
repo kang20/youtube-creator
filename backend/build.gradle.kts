@@ -49,6 +49,12 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 
+	// JWT — access 토큰 서명·검증 (auth-design.md §14-2, jjwt 0.12.x).
+	// api 만 컴파일 표면이고 impl·jackson 은 런타임 전용 — 코드가 구현체에 붙는 것을 막는 jjwt 권장 구성.
+	implementation("io.jsonwebtoken:jjwt-api:0.12.7")
+	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.7")
+	runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.7")
+
 	// 이미지 업로드가 필요하면: OCI Object Storage 의 S3 호환 API 에 presigned PUT
 	// implementation(platform("software.amazon.awssdk:bom:2.46.7"))
 	// implementation("software.amazon.awssdk:s3")

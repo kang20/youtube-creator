@@ -13,9 +13,14 @@ public enum ErrorCode {
 	COMMON_002(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다."),
 
 	// ── 인증/인가 ─────────────────────────────────────────
+	// ❗ 401 이 네 종류다(auth.md §7 v4) — 프론트 행동이 다르다:
+	//    AUTH_001·AUTH_002(재로그인) / AUTH_004(refresh 후 1회 재시도) / AUTH_005(재로그인).
+	//    만료(AUTH_004)를 AUTH_002 에 섞으면 30분마다 전 사용자가 재로그인한다.
 	AUTH_001(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
 	AUTH_002(HttpStatus.UNAUTHORIZED, "유효하지 않은 인증 정보입니다."),
 	AUTH_003(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
+	AUTH_004(HttpStatus.UNAUTHORIZED, "만료된 인증 정보입니다."),
+	AUTH_005(HttpStatus.UNAUTHORIZED, "유효하지 않은 갱신 토큰입니다."),
 
 	// ── 결제/이용권 (payment-design.md §9) ─────────────────
 	// ❗ 403 이 두 종류다 — PAY_001(결제 유도) vs PAY_007(recheck 유도). 프론트 행동이 정반대다.
