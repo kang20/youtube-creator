@@ -1,10 +1,19 @@
-# 도메인 모델 문서 양식 · Mermaid 규약
+# 파일별 양식 · Mermaid 규약
 
-`backend/docs/model/{module}.md` 의 양식이다. 섹션 번호를 바꾸지 않는다.
+```
+backend/docs/model/
+├── master.md              전 모듈 통합 다이어그램 — Mermaid 전용
+├── {module}-notes.md      책임·불변식·경계 규칙·주의사항·미확정   (항상)
+├── {module}-state.md      상태 전이                              (상태 필드가 있을 때만)
+└── {module}-flow.md       모듈 간 상호작용 흐름                   (다른 모듈과 얽힐 때만)
+```
+
+**판단 기준**: `master.md` 에 그렸는데 "이건 설명이 필요한데" 싶으면 → 그 설명은 분리 문서로.
+그림은 옮기지 않는다. **그림과 말을 갈라놓는 것이 이 구조의 전부다.**
 
 ---
 
-## Mermaid 작성 규약 (전 섹션 공통)
+## Mermaid 작성 규약 (전 파일 공통)
 
 ### 렌더링 안전 규칙
 
@@ -13,9 +22,9 @@
 | 코드펜스는 반드시 ` ```mermaid ` | GitHub·VS Code 가 이걸로 판별한다 |
 | `flowchart` 노드 라벨에 한글·`·`·`(` 가 들면 **따옴표로 감싼다** — `A["결제·이용권"]` | 따옴표 없으면 파서가 끊는다 |
 | 반대로 `sequenceDiagram` 의 `participant X as 결제·이용권` 은 **따옴표를 쓰지 않는다** | 별칭은 줄 끝까지 자유 문자열이라 따옴표가 그대로 출력된다 |
+| `stateDiagram-v2` 의 상태 id 는 **ASCII**, 한글은 `state "활성" as ACTIVE` 로 | 비ASCII id 는 렌더러마다 처리가 다르다 |
 | `erDiagram` 엔티티명은 **영문 대문자 + 언더스코어** | 하이픈·점은 파싱 실패 |
-| 노드 30개를 넘기지 않는다 | 자동 레이아웃이 무너진다. 넘으면 다이어그램을 쪼갠다 |
-| 주석은 다이어그램 밖에 쓴다 | Mermaid 주석(`%%`)은 렌더러마다 다르게 처리된다 |
+| 다이어그램 하나에 노드 30개를 넘기지 않는다 | 자동 레이아웃이 무너진다. 넘으면 쪼갠다 |
 
 ### 관계선 규약 — **이 프로젝트 전용**
 
@@ -24,143 +33,209 @@
 | 표기 | 의미 | 언제 |
 |---|---|---|
 | `\|\|--o{` (실선) | **애그리거트 내부** 관계 — 같은 트랜잭션에서 함께 산다 | 루트와 그 구성 엔티티 |
-| `\|\|..o{` (점선) | **애그리거트 경계를 넘는 ID 참조** — 물리 FK 없음, JOIN 하지 않음 | 다른 애그리거트/모듈을 가리킬 때 |
+| `\|\|..o{` (점선) | **애그리거트·모듈 경계를 넘는 ID 참조** — 물리 FK 없음, JOIN 하지 않음 | 다른 애그리거트를 가리킬 때 |
 
 > 점선을 실선으로 잘못 그리면 "JOIN 해도 된다"는 오해를 낳는다. **선 종류가 곧 규칙이다.**
 
 ---
 
-## 문서 양식
+## `master.md` — 전 모듈 통합 다이어그램
+
+### 절대 규칙
+
+**Mermaid 코드블록과 HTML 주석(`<!-- -->`) 외에는 아무것도 쓰지 않는다.**
+제목도, 한 줄 설명도, 표도, 링크도 안 된다. 열면 **그림만** 보여야 한다.
+
+메타데이터(근거 커밋·갱신일·분리 문서 목록)는 **HTML 주석**에 넣는다 — 렌더링되지 않는다.
+
+### 구성
+
+다이어그램 **2개**만 둔다. 늘리지 않는다.
+
+1. **애그리거트 지도** — 모듈을 `subgraph` 로 묶고, 그 안에 애그리거트를 다시 `subgraph` 로
+2. **통합 ERD** — 전 모듈 엔티티
+
+모듈 간 의존 그래프는 여기 그리지 않는다 — Modulith `Documenter` 몫이다.
+
+### 양식
 
 ````markdown
-# {표시명} 모듈 도메인 모델
+<!--
+  전 모듈 도메인 모델 — /domain-model 이 관리한다. 손으로 고쳐도 되지만 형식은 지킨다.
 
-> **근거 커밋** `{7자리 해시}` · **갱신** {YYYY-MM-DD} · **작성** /domain-model
+  ⚠️ 이 파일에는 Mermaid 코드블록과 이런 HTML 주석 외에 아무것도 쓰지 않는다.
+     설명이 필요하면 {module}-notes.md 로 뺀다.
+
+  구역별 근거 커밋 · 갱신일
+    auth    : d2d5e26 · 2026-08-13
+    payment : (미작성)
+
+  분리 문서
+    auth : auth-notes.md · auth-state.md · auth-flow.md
+-->
+
+```mermaid
+flowchart TB
+    subgraph M_AUTH["인증 (auth)"]
+        subgraph AG_USER["애그리거트: User"]
+            U["User (루트)"]
+            RT["RefreshToken"]
+            U --> RT
+        end
+    end
+
+    subgraph M_PAY["결제·이용권 (payment)"]
+        subgraph AG_ORDER["애그리거트: PaymentOrder"]
+            PO["PaymentOrder (루트)"]
+        end
+    end
+
+    AG_ORDER -.->|"UserId 값 참조"| AG_USER
+```
+
+```mermaid
+erDiagram
+    USERS ||--o{ REFRESH_TOKENS : "발급 (물리 FK 없음)"
+    USERS ||..o{ PAYMENT_ORDERS : "user_id (경계 넘음)"
+
+    USERS {
+        UserId id PK "BIGINT AUTO_INCREMENT"
+        String anonymous_key_hash UK "SHA-256 hex 64"
+    }
+
+    REFRESH_TOKENS {
+        Long id PK "밖에 안 나감"
+        UserId user_id "논리 참조"
+        String token_hash UK "조회 키"
+        LocalDateTime revoked_at "NULL = 활성"
+    }
+```
+````
+
+**ERD 컬럼은 식별자·상태·불변식에 관여하는 것만.** 전 컬럼 나열 금지 — DDL(`backend/deploy/sql/`)이
+정본이다. `createdAt`·`updatedAt` 같은 `BaseTimeEntity` 공통 필드는 생략한다.
+
+---
+
+## `{module}-notes.md` — 책임·불변식·주의사항
+
+`master.md` 의 그림이 **왜 그렇게 생겼는지**를 설명한다. 이 스킬 산출물 중 값어치가 가장 크다.
+
+````markdown
+# {표시명}({module}) 모델 노트
+
+> **근거 커밋** `{7자리}` · **갱신** {YYYY-MM-DD} · 그림 [master.md](master.md)
 > 요구 [{module}.md](../domain/{module}.md) · 설계 [{module}-design.md](../domain/{module}-design.md)
 >
-> ⚠️ 수기 문서다. 코드가 바뀌면 자동으로 따라오지 않는다 — 엔티티·경계가 바뀌면
-> `/domain-model {module}` 로 갱신한다.
+> ⚠️ 수기 문서다. 엔티티·경계가 바뀌면 `/domain-model {module}` 로 갱신한다.
 
-## §1 이 모듈은 무엇을 책임지는가
+## 이 모듈은 무엇을 책임지는가
 
 {2~4줄. 무엇을 지키는 모듈인지. 기능 나열이 아니라 책임 서술.}
 
 - **모듈 타입** `{CLOSED | OPEN}`
 - **의존 허용** `{allowedDependencies 원문}`
-- **밖에 노출한 것** `{Port·DTO 목록}`
+- **밖에 노출한 것** {포트·타입 ID·dto 표}
 
-## §2 애그리거트 지도
+## 애그리거트 경계
 
-{경계가 곧 트랜잭션 단위이자 동시성 단위다. 이 그림이 이 문서의 핵심이다.}
-
-```mermaid
-flowchart TB
-    subgraph AG1["애그리거트: PaymentOrder"]
-        PO["PaymentOrder<br/>(루트)"]
-    end
-    subgraph AG2["애그리거트: Subscription"]
-        SUB["Subscription<br/>(루트)"]
-        UT["UsageTicket"]
-        SUB --> UT
-    end
-    subgraph AG3["애그리거트: CreditBalance"]
-        CB["CreditBalance<br/>(루트)"]
-    end
-    PO -.->|"userId 참조"| EXT["User<br/>(auth 모듈)"]
-    PO -.->|"결제 확정 시"| SUB
-```
-
-| 애그리거트 | 루트 | 구성 | 트랜잭션 경계 근거 |
+| 애그리거트 | 루트 | 구성 | 경계 판단 근거 |
 |---|---|---|---|
-| … | … | … | {어느 서비스 메서드가 함께 쓰는지} |
+| … | … | … | {트랜잭션·리포지토리·수명 근거} |
 
 **경계 규칙**
 - 경계를 넘는 참조는 **ID 값**이다. 객체 참조·JPA 연관을 만들지 않는다
-- 한 트랜잭션은 **애그리거트 하나만** 수정한다. 여러 개가 필요하면 이벤트로 나눈다
 - {이 모듈 고유의 규칙}
 
-## §3 엔티티 관계 (ERD)
+**확정안과 코드의 이탈** (있을 때만)
+> {무엇이 다른가} · {왜 그런가} · **고칠 것인가 예외인가**
 
-```mermaid
-erDiagram
-    SUBSCRIPTION ||--o{ USAGE_TICKET : "발급"
-    USER ||..o{ PAYMENT_ORDER : "userId (FK 없음)"
+## 엔티티 책임
 
-    PAYMENT_ORDER {
-        Long id PK
-        UserId user_id "논리 참조"
-        String order_id UK
-        String status
-    }
-```
-
-- 실선 = 애그리거트 내부 / 점선 = 경계 넘는 ID 참조 (물리 FK 없음)
-- 컬럼은 **식별자·상태·불변식에 관여하는 것만** 적는다. 전 컬럼 나열 금지 — DDL 이 정본이다
-- DDL 정본: `backend/deploy/sql/`
-
-## §4 엔티티 책임
-
-{필드 나열이 아니라 "이 엔티티가 무엇을 지키는가"를 쓴다.}
-
-| 엔티티 | 소속 애그리거트 | 책임 (한 줄) | 불변식 | 상태 |
+| 엔티티 | 소속 | 책임 (한 줄) | 불변식 (코드가 강제) | 상태 |
 |---|---|---|---|---|
-| `PaymentOrder` | PaymentOrder(루트) | 토스 주문 1건의 생애를 대변한다 | `orderId` 는 전역 유일 · 확정 후 금액 불변 | `status` |
-| `RefreshToken` | RefreshToken(루트) | 원문 없이 토큰 유효성의 근거를 남긴다 | 원문 미저장 · 폐기 행을 지우지 않는다(재사용 감지 근거) | `revokedAt` |
+| … | … | … | … | … |
 
-**불변식 칸에는 "코드가 실제로 강제하는 것"을 쓴다.** 희망사항이면 🔶 로 §8 에.
+**불변식 칸에는 "코드가 실제로 강제하는 것"만 쓴다.** 희망사항이면 아래 미확정으로.
 
-## §5 상태 전이
+## 건드릴 때 지켜야 할 것
 
-{상태 필드가 있는 엔티티만. 없으면 이 절을 통째로 생략한다.}
+{코드 리뷰에서 반복해 지적할 만한 것 3~6개. 명령형으로.}
+
+- {예: `AuthService` 에 `@Transactional` 을 붙이지 마라 — 없는 것이 설계다}
+
+## 미확정 · 불일치 🔶
+
+| 항목 | 상태 | 비고 |
+|---|---|---|
+| … | 🔶 확인 필요 / ⚠️ 불일치 / ℹ️ 신규 | … |
+
+없으면 "없음"이라고 쓴다. 절을 지우지 않는다 — 빈 칸이 곧 "확인했다"는 기록이다.
+````
+
+---
+
+## `{module}-state.md` — 상태 전이
+
+**상태 필드가 있는 엔티티만.** 없으면 이 파일을 만들지 않는다.
+
+````markdown
+# {표시명}({module}) 상태 전이
+
+> **근거 커밋** `{7자리}` · **갱신** {YYYY-MM-DD} · 그림 [master.md](master.md) · 노트 [{module}-notes.md]({module}-notes.md)
+
+## {엔티티명}
 
 ```mermaid
 stateDiagram-v2
-    [*] --> READY: 주문 생성
-    READY --> DONE: 결제 확정
-    READY --> CANCELED: 취소
-    DONE --> [*]
+    state "활성 (revoked_at IS NULL)" as ACTIVE
+    state "폐기 (revoked_at NOT NULL)" as REVOKED
+
+    [*] --> ACTIVE: issue()
+    ACTIVE --> REVOKED: rotate() 승자
 ```
 
 | 전이 | 트리거 | 부수효과 |
 |---|---|---|
-| `READY → DONE` | {어느 API/이벤트} | {이용권 발급 등} |
+| … | {어느 API/이벤트} | … |
 
-## §6 다른 모듈과의 상호작용
+{상태가 아닌 축(만료 등)이 섞이기 쉬우면 여기서 명시적으로 갈라준다.}
+````
 
-{핵심 흐름 1~2개만. 전 API 를 그리지 않는다 — 그건 api-spec 몫이다.}
+**상태 필드에 저장된 사실**과 **시각 비교로 판정되는 것**(만료 등)은 다른 축이다. 섞지 않는다.
+
+---
+
+## `{module}-flow.md` — 모듈 간 상호작용
+
+**핵심 흐름 1~2개만.** 전 API 를 그리지 않는다 — 그건 api-spec 몫이다.
+
+````markdown
+# {표시명}({module}) 상호작용
+
+> **근거 커밋** `{7자리}` · **갱신** {YYYY-MM-DD} · 그림 [master.md](master.md) · 노트 [{module}-notes.md]({module}-notes.md)
+
+## 흐름 ① {이름}
 
 ```mermaid
 sequenceDiagram
     participant C as 클라이언트
-    participant P as 결제·이용권
-    participant T as 토스 IAP
-    C->>P: 구매 확인 요청
-    P->>T: get-order-status (mTLS)
-    T-->>P: 주문 상태
-    P->>P: PaymentOrder 확정 + 이용권 발급
-    P-->>C: 결과
+    participant B as 진입 (bootstrap)
+    participant A as 인증 (auth)
+
+    C->>B: POST /api/v1/bootstrap
+    B->>A: authPort.login(익명키)
+    A-->>B: LoginResult
+    B-->>C: 200
 ```
+
+{이 흐름의 함정·전제를 여기 적는다.}
+
+## 상호작용 요약
 
 | 상대 | 방향 | 수단 | 왜 이 방식인가 |
 |---|---|---|---|
-| `auth` | → | 직접 호출(`allowedDependencies`) | {이유} |
-| `{x}` | ← | 이벤트 | {이유} |
-
-## §7 이 모듈을 건드릴 때 지켜야 할 것
-
-{코드 리뷰에서 반복해서 지적할 만한 것들. 3~6개.}
-
-- {예: `UsageTicket` 을 `Subscription` 없이 단독 생성하지 않는다}
-- {예: `CreditBalance` 갱신은 낙관적 락 재시도 경로를 통한다}
-
-## §8 미확정 · 불일치 🔶
-
-| 항목 | 상태 | 비고 |
-|---|---|---|
-| {애그리거트 경계 미확정 건} | 🔶 확인 필요 | {양쪽 해석} |
-| {설계서와 코드 불일치} | ⚠️ 불일치 | 설계서 §{n} 은 X, 코드는 Y |
-
-없으면 "없음"이라고 쓴다. 절을 지우지 않는다 — 빈 칸이 곧 "확인했다"는 기록이다.
+| … | → / ← | 직접 호출 / 이벤트 | … |
 ````
 
 ---
@@ -169,9 +244,11 @@ sequenceDiagram
 
 | 실수 | 왜 문제인가 |
 |---|---|
+| `master.md` 에 제목·한 줄 설명을 넣음 | 한 줄이 두 줄 되고 결국 산문 문서가 된다. **예외를 만들지 마라** |
+| `master.md` 의 다른 모듈 구역을 같이 손댐 | 근거 커밋이 어긋나 어느 그림이 최신인지 알 수 없게 된다 |
 | 전 컬럼을 ERD 에 옮겨 적음 | DDL 과 이중 관리 → 반드시 어긋난다. 식별자·상태만 |
 | 애그리거트 경계를 실선으로 그림 | JOIN 해도 되는 것처럼 읽힌다 |
 | 책임 칸에 "결제 정보를 저장한다" | 클래스명 반복이다. **무엇을 지키는가**를 써야 한다 |
-| 모듈 여러 개를 한 문서에 | 갱신 시점이 달라 전부 낡는다. 모듈당 한 문서 |
+| 내용도 없이 `-state.md` 를 만듦 | 빈 껍데기가 늘면 아무도 안 읽는다 |
 | API 요청/응답 JSON 을 옮겨 적음 | api-spec 이 정본. 링크만 |
 | 🔶 를 임의로 확정 | CLAUDE.md 위반. 사용자에게 묻는다 |
