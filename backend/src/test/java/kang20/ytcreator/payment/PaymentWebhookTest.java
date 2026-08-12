@@ -13,10 +13,11 @@ import java.util.List;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.base.MutableClock;
 import kang20.ytcreator.config.JpaAuditingConfig;
+import kang20.ytcreator.payment.internal.service.PaymentService;
 import kang20.ytcreator.payment.internal.entity.Subscription;
-import kang20.ytcreator.payment.internal.repository.SubscriptionRepository;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.SubscriptionRepository;
 import kang20.ytcreator.payment.internal.entity.SubscriptionStatus;
-import kang20.ytcreator.payment.internal.client.TossOrderClient;
+import kang20.ytcreator.payment.internal.handler.outbound.client.TossOrderClient;
 import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,6 +64,7 @@ class PaymentWebhookTest {
 
 	@Autowired
 	private PaymentService paymentService;
+
 
 	@Autowired
 	private SubscriptionRepository subscriptionRepository;

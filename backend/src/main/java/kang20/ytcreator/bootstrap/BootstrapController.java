@@ -1,9 +1,9 @@
 package kang20.ytcreator.bootstrap;
 
-import kang20.ytcreator.auth.AuthService;
+import kang20.ytcreator.auth.AuthPort;
 import kang20.ytcreator.auth.dto.Registration;
 import kang20.ytcreator.bootstrap.dto.BootstrapResponse;
-import kang20.ytcreator.payment.PaymentService;
+import kang20.ytcreator.payment.PaymentReaderPort;
 import kang20.ytcreator.payment.dto.EntitlementView;
 import kang20.ytcreator.shared.security.AnonymousAuthentication;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,18 +23,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class BootstrapController {
 
-	private final AuthService authService;
-	private final PaymentService paymentService;
+	private final AuthPort authPort;
+	private final PaymentReaderPort paymentReader;
 
-	public BootstrapController(AuthService authService, PaymentService paymentService) {
-		this.authService = authService;
-		this.paymentService = paymentService;
+	public BootstrapController(AuthPort authPort, PaymentReaderPort paymentReader) {
+		this.authPort = authPort;
+		this.paymentReader = paymentReader;
 	}
 
 	@PostMapping("/api/v1/bootstrap")
 	public BootstrapResponse bootstrap(AnonymousAuthentication authentication) {
-		Registration registration = authService.register(authentication.getAnonymousKey());
-		EntitlementView entitlement = paymentService.entitlementOf(registration.userId());
+		Registration registration = authPort.register(authentication.getAnonymousKey());
+		EntitlementView entitlement = paymentReader.entitlementOf(registration.userId());
 		return new BootstrapResponse(registration.newUser(), registration.registeredAt(), entitlement);
 	}
 }

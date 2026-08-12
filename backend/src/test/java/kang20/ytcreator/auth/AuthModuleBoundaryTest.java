@@ -8,8 +8,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
-import kang20.ytcreator.auth.internal.AnonymousKeyHasher;
-import kang20.ytcreator.auth.internal.User;
+import kang20.ytcreator.auth.internal.service.support.AnonymousKeyHasher;
+import kang20.ytcreator.auth.internal.entity.User;
 import kang20.ytcreator.shared.security.AnonymousKeyFormat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,7 +59,7 @@ class AuthModuleBoundaryTest {
 	@Test
 	@DisplayName("auth 의 허용 의존은 shared 하나뿐이다 — subscription 이 끼면 실패한다")
 	void 허용_의존은_shared_하나뿐이다() {
-		ApplicationModule module = AuthService.class.getPackage().getAnnotation(ApplicationModule.class);
+		ApplicationModule module = AuthPort.class.getPackage().getAnnotation(ApplicationModule.class);
 
 		assertThat(module).isNotNull();
 		assertThat(module.displayName()).isEqualTo("인증");

@@ -49,7 +49,7 @@ class PaymentModuleBoundaryTest {
 	@Test
 	@DisplayName("payment 의 허용 의존은 모듈 축으로 shared·auth 뿐이다")
 	void 허용_의존은_shared_auth_뿐이다() {
-		ApplicationModule module = PaymentService.class.getPackage().getAnnotation(ApplicationModule.class);
+		ApplicationModule module = PaymentReaderPort.class.getPackage().getAnnotation(ApplicationModule.class);
 
 		assertThat(module).isNotNull();
 		assertThat(module.displayName()).isEqualTo("결제·이용권");

@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import kang20.ytcreator.base.ControllerTest;
 import kang20.ytcreator.payment.dto.WebhookEvent;
+import kang20.ytcreator.payment.internal.handler.inbound.PaymentWebhookController;
 import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -52,7 +53,7 @@ class PaymentWebhookControllerTest extends ControllerTest {
 		""";
 
 	@MockitoBean
-	private PaymentService paymentService;
+	private PaymentWebhookPort webhookPort;
 
 	/**
 	 * U9 · §5-5 — 구독 상태 변경 수신. <b>익명키 없이 204</b> — 웹훅 경로는 게이트 밖이고
@@ -62,7 +63,7 @@ class PaymentWebhookControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("구독 상태 변경 웹훅은 익명키 없이 수신되고 204 본문 없음으로 답한다")
 	void 상태_변경_수신() throws Exception {
-		doNothing().when(paymentService).handleWebhook(any(), any(WebhookEvent.class));
+		doNothing().when(webhookPort).handleWebhook(any(), any(WebhookEvent.class));
 
 		mockMvc.perform(post(WEBHOOK_PATH)
 				.header(HttpHeaders.AUTHORIZATION, PaymentFixture.WEBHOOK_AUTH_HEADER)
@@ -97,7 +98,7 @@ class PaymentWebhookControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("등록 검증 이벤트는 204 로 답해 콜백 URL 을 활성화한다")
 	void 등록_검증_수신() throws Exception {
-		doNothing().when(paymentService).handleWebhook(any(), any(WebhookEvent.class));
+		doNothing().when(webhookPort).handleWebhook(any(), any(WebhookEvent.class));
 
 		mockMvc.perform(post(WEBHOOK_PATH)
 				.header(HttpHeaders.AUTHORIZATION, PaymentFixture.WEBHOOK_AUTH_HEADER)
@@ -118,7 +119,7 @@ class PaymentWebhookControllerTest extends ControllerTest {
 	@DisplayName("Basic Auth 불일치 웹훅은 401 로 거부된다")
 	void 위조_웹훅_거부() throws Exception {
 		doThrow(new BusinessException(ErrorCode.AUTH_002))
-			.when(paymentService).handleWebhook(any(), any(WebhookEvent.class));
+			.when(webhookPort).handleWebhook(any(), any(WebhookEvent.class));
 
 		mockMvc.perform(post(WEBHOOK_PATH)
 				.header(HttpHeaders.AUTHORIZATION, "Basic d3Jvbmc6d3Jvbmc=")
@@ -142,7 +143,7 @@ class PaymentWebhookControllerTest extends ControllerTest {
 	@DisplayName("Authorization 헤더가 아예 없는 요청도 컨트롤러는 받는다 — 판정은 모듈 몫이다")
 	void 헤더_없는_요청도_모듈이_판정한다() throws Exception {
 		doThrow(new BusinessException(ErrorCode.AUTH_002))
-			.when(paymentService).handleWebhook(isNull(), any(WebhookEvent.class));
+			.when(webhookPort).handleWebhook(isNull(), any(WebhookEvent.class));
 
 		mockMvc.perform(post(WEBHOOK_PATH)
 				.contentType(MediaType.APPLICATION_JSON)

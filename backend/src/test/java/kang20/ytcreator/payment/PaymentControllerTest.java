@@ -20,7 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import kang20.ytcreator.auth.AuthService;
+import kang20.ytcreator.auth.AuthPort;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.auth.dto.Registration;
 import kang20.ytcreator.base.ControllerTest;
@@ -29,6 +29,7 @@ import kang20.ytcreator.payment.dto.GrantResult;
 import kang20.ytcreator.payment.dto.ProductCatalog;
 import kang20.ytcreator.payment.dto.ProductType;
 import kang20.ytcreator.payment.dto.SubscriptionSnapshot;
+import kang20.ytcreator.payment.internal.handler.inbound.PaymentController;
 import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
 import kang20.ytcreator.shared.security.AnonymousKeyFilter;
@@ -57,14 +58,17 @@ class PaymentControllerTest extends ControllerTest {
 	private static final UserId USER = new UserId(77L);
 
 	@MockitoBean
-	private AuthService authService;
+	private AuthPort authPort;
 
 	@MockitoBean
-	private PaymentService paymentService;
+	private PaymentReaderPort readerPort;
+
+	@MockitoBean
+	private PaymentPurchasePort purchasePort;
 
 	@BeforeEach
 	void resolveUser() {
-		when(authService.register(ANON_KEY))
+		when(authPort.register(ANON_KEY))
 			.thenReturn(new Registration(false, LocalDateTime.of(2026, 8, 1, 10, 0), USER));
 	}
 
@@ -96,7 +100,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("상품 목록은 §5-2 의 중첩 스키마로 내려간다 — 가격은 없다(SDK displayAmount 가 정본)")
 	void 상품_목록() throws Exception {
-		when(paymentService.products()).thenReturn(new ProductCatalog(
+		when(readerPort.products()).thenReturn(new ProductCatalog(
 			new ProductCatalog.OneTime(PaymentFixture.ONE_TIME_SKU, "CONSUMABLE"),
 			new ProductCatalog.Subscription(PaymentFixture.SUBSCRIPTION_SKU, "SUBSCRIPTION", "MONTHLY", null)));
 
@@ -130,7 +134,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("상품 조회는 익명키 없이 호출된다 — 결제하려는 API 가 결제를 요구할 수 없다")
 	void 상품_조회는_공개다() throws Exception {
-		when(paymentService.products()).thenReturn(new ProductCatalog(
+		when(readerPort.products()).thenReturn(new ProductCatalog(
 			new ProductCatalog.OneTime(PaymentFixture.ONE_TIME_SKU, "CONSUMABLE"), null));
 
 		mockMvc.perform(get("/api/v1/payments/products"))
@@ -147,7 +151,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("지급 성공 응답은 granted·productType·entitlement 다 — §5-4 원문 필드명")
 	void 지급_성공() throws Exception {
-		when(paymentService.grant(eq(USER), eq("order-doc-1")))
+		when(purchasePort.grant(eq(USER), eq("order-doc-1")))
 			.thenReturn(new GrantResult(true, ProductType.CONSUMABLE, creditsOnly(3)));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
@@ -185,7 +189,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("결제 미확정 주문은 409 PAY_002 다 — 프론트는 false 반환 후 복원에 위임한다")
 	void 지급_실패_진행중() throws Exception {
-		when(paymentService.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_002));
+		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_002));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
 				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
@@ -203,7 +207,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("실패·환불 주문은 409 PAY_003 다 — 재시도 금지")
 	void 지급_실패_미완료() throws Exception {
-		when(paymentService.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_003));
+		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_003));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
 				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
@@ -221,7 +225,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("없는 주문은 404 PAY_004 다 — 문의 안내·재시도 금지")
 	void 지급_실패_주문_없음() throws Exception {
-		when(paymentService.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_004));
+		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_004));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
 				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
@@ -240,7 +244,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("남의 주문은 409 PAY_005 다 — 복원 흐름에서는 조용히 건너뛴다")
 	void 지급_실패_선점() throws Exception {
-		when(paymentService.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_005));
+		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_005));
 
 		MvcResult result = mockMvc.perform(post("/api/v1/payments/grant")
 				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
@@ -263,7 +267,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("토스 확인 실패는 502 PAY_006 다 — 잠시 후 재시도, 복원에 위임")
 	void 지급_실패_토스_장애() throws Exception {
-		when(paymentService.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_006));
+		when(purchasePort.grant(eq(USER), any())).thenThrow(new BusinessException(ErrorCode.PAY_006));
 
 		mockMvc.perform(post("/api/v1/payments/grant")
 				.header(AnonymousKeyFilter.HEADER, ANON_KEY)
@@ -284,7 +288,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("이용권 조회는 §5-3 스키마 그대로다")
 	void 이용권_조회() throws Exception {
-		when(paymentService.entitlementOf(USER)).thenReturn(activeSubscription());
+		when(readerPort.entitlementOf(USER)).thenReturn(activeSubscription());
 
 		mockMvc.perform(get("/api/v1/payments/entitlement")
 				.header(AnonymousKeyFilter.HEADER, ANON_KEY))
@@ -312,7 +316,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("STALE 이면 subscriptionStale=true 가 실린다 — 결제 유도 금지 신호")
 	void 이용권_조회_STALE() throws Exception {
-		when(paymentService.entitlementOf(USER)).thenReturn(staleSubscription());
+		when(readerPort.entitlementOf(USER)).thenReturn(staleSubscription());
 
 		mockMvc.perform(get("/api/v1/payments/entitlement")
 				.header(AnonymousKeyFilter.HEADER, ANON_KEY))
@@ -338,7 +342,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("recheck 는 entitlement 와 같은 스키마로 답한다")
 	void 구독_재확인() throws Exception {
-		when(paymentService.recheck(eq(USER), any(SubscriptionSnapshot.class)))
+		when(purchasePort.recheck(eq(USER), any(SubscriptionSnapshot.class)))
 			.thenReturn(activeSubscription());
 
 		mockMvc.perform(post("/api/v1/payments/subscription/recheck")
@@ -368,7 +372,7 @@ class PaymentControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("구독 이력이 없으면 recheck 는 404 PAY_004 다")
 	void 구독_재확인_이력_없음() throws Exception {
-		when(paymentService.recheck(eq(USER), any(SubscriptionSnapshot.class)))
+		when(purchasePort.recheck(eq(USER), any(SubscriptionSnapshot.class)))
 			.thenThrow(new BusinessException(ErrorCode.PAY_004));
 
 		mockMvc.perform(post("/api/v1/payments/subscription/recheck")

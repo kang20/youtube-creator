@@ -11,12 +11,13 @@ import kang20.ytcreator.config.JpaAuditingConfig;
 import kang20.ytcreator.payment.dto.TicketSource;
 import kang20.ytcreator.payment.dto.UsageTicketView;
 import kang20.ytcreator.payment.internal.entity.CreditBalance;
-import kang20.ytcreator.payment.internal.repository.CreditBalanceRepository;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.CreditBalanceRepository;
 import kang20.ytcreator.payment.internal.entity.Subscription;
-import kang20.ytcreator.payment.internal.repository.SubscriptionRepository;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.SubscriptionRepository;
 import kang20.ytcreator.payment.internal.entity.TicketStatus;
-import kang20.ytcreator.payment.internal.client.TossOrderClient;
-import kang20.ytcreator.payment.internal.repository.UsageTicketRepository;
+import kang20.ytcreator.payment.internal.service.PaymentService;
+import kang20.ytcreator.payment.internal.handler.outbound.client.TossOrderClient;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.UsageTicketRepository;
 import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +56,7 @@ class PaymentConsumeTest {
 
 	@Autowired
 	private PaymentService paymentService;
+
 
 	@Autowired
 	private CreditBalanceRepository creditRepository;

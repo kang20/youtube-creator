@@ -6,7 +6,8 @@ import java.time.Clock;
 import kang20.ytcreator.base.MutableClock;
 import kang20.ytcreator.config.JpaAuditingConfig;
 import kang20.ytcreator.payment.dto.ProductCatalog;
-import kang20.ytcreator.payment.internal.client.TossOrderClient;
+import kang20.ytcreator.payment.internal.service.PaymentService;
+import kang20.ytcreator.payment.internal.handler.outbound.client.TossOrderClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +39,7 @@ class PaymentProductExposureTest {
 	}
 
 	@Autowired
-	private PaymentService paymentService;
+	private PaymentService paymentReadService;
 
 	@MockitoBean
 	private TossOrderClient tossOrderClient;
@@ -47,7 +48,7 @@ class PaymentProductExposureTest {
 	@Test
 	@DisplayName("sku 미설정이면 상품 키 전체가 null(미노출)이다")
 	void 미설정은_미노출() {
-		ProductCatalog catalog = paymentService.products();
+		ProductCatalog catalog = paymentReadService.products();
 
 		assertThat(catalog.oneTime()).isNull();
 		assertThat(catalog.subscription())

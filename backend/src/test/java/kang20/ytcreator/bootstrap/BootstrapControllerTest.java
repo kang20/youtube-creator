@@ -14,11 +14,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import kang20.ytcreator.auth.AuthService;
+import kang20.ytcreator.auth.AuthPort;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.auth.dto.Registration;
 import kang20.ytcreator.base.ControllerTest;
-import kang20.ytcreator.payment.PaymentService;
+import kang20.ytcreator.payment.PaymentReaderPort;
 import kang20.ytcreator.payment.dto.EntitlementView;
 import kang20.ytcreator.shared.security.AnonymousKeyFilter;
 import kang20.ytcreator.shared.security.AnonymousKeyFixture;
@@ -44,10 +44,10 @@ class BootstrapControllerTest extends ControllerTest {
 	private static final LocalDateTime REGISTERED_AT = LocalDateTime.of(2026, 8, 11, 10, 30, 0);
 
 	@MockitoBean
-	private AuthService authService;
+	private AuthPort authPort;
 
 	@MockitoBean
-	private PaymentService paymentService;
+	private PaymentReaderPort paymentReader;
 
 	/**
 	 * auth.md §5-2 v3 — 응답은 {@code {newUser, registeredAt, entitlement}} 이고 entitlement 내부는
@@ -56,9 +56,9 @@ class BootstrapControllerTest extends ControllerTest {
 	@Test
 	@DisplayName("부트스트랩은 등록 결과와 이용권을 한 응답으로 준다 — userId 는 싣지 않는다")
 	void 진입_성공() throws Exception {
-		when(authService.register(ANON_KEY)).thenReturn(new Registration(true, REGISTERED_AT, USER));
+		when(authPort.register(ANON_KEY)).thenReturn(new Registration(true, REGISTERED_AT, USER));
 		OffsetDateTime expiresAt = LocalDateTime.of(2026, 9, 8, 0, 0).atOffset(ZoneOffset.ofHours(9));
-		when(paymentService.entitlementOf(USER)).thenReturn(new EntitlementView(true, 2, false,
+		when(paymentReader.entitlementOf(USER)).thenReturn(new EntitlementView(true, 2, false,
 			new EntitlementView.SubscriptionView("ACTIVE", expiresAt, true)));
 
 		MvcResult result = mockMvc.perform(post(BOOTSTRAP_PATH)

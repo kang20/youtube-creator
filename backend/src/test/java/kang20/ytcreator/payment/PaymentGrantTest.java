@@ -14,15 +14,16 @@ import kang20.ytcreator.base.MutableClock;
 import kang20.ytcreator.config.JpaAuditingConfig;
 import kang20.ytcreator.payment.dto.GrantResult;
 import kang20.ytcreator.payment.dto.ProductType;
-import kang20.ytcreator.payment.internal.repository.CreditBalanceRepository;
+import kang20.ytcreator.payment.internal.service.PaymentService;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.CreditBalanceRepository;
 import kang20.ytcreator.payment.internal.entity.PaymentOrder;
-import kang20.ytcreator.payment.internal.repository.PaymentOrderRepository;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.PaymentOrderRepository;
 import kang20.ytcreator.payment.internal.entity.Subscription;
-import kang20.ytcreator.payment.internal.repository.SubscriptionRepository;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.SubscriptionRepository;
 import kang20.ytcreator.payment.internal.entity.SubscriptionStatus;
-import kang20.ytcreator.payment.internal.client.TossOrderClient;
-import kang20.ytcreator.payment.internal.client.TossOrderStatus;
-import kang20.ytcreator.payment.internal.repository.UsageTicketRepository;
+import kang20.ytcreator.payment.internal.handler.outbound.client.TossOrderClient;
+import kang20.ytcreator.payment.internal.handler.outbound.client.TossOrderStatus;
+import kang20.ytcreator.payment.internal.handler.outbound.repository.UsageTicketRepository;
 import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +68,7 @@ class PaymentGrantTest {
 
 	@Autowired
 	private PaymentService paymentService;
+
 
 	@Autowired
 	private PaymentOrderRepository orderRepository;

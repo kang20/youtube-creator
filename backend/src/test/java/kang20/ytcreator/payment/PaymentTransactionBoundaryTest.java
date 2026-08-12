@@ -7,12 +7,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
-import kang20.ytcreator.auth.AuthService;
+import kang20.ytcreator.auth.AuthPort;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.bootstrap.BootstrapController;
 import kang20.ytcreator.payment.dto.ProductType;
-import kang20.ytcreator.payment.internal.writer.GrantWriter;
-import kang20.ytcreator.payment.internal.writer.SubscriptionApplyWriter;
+import kang20.ytcreator.payment.internal.service.PaymentService;
+import kang20.ytcreator.payment.internal.handler.inbound.PaymentController;
+import kang20.ytcreator.payment.internal.service.support.GrantWriter;
+import kang20.ytcreator.payment.internal.service.support.SubscriptionApplyWriter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Propagation;
@@ -69,11 +71,11 @@ class PaymentTransactionBoundaryTest {
 	 * 감시자로 지목했다(payment-design §7).
 	 */
 	@Test
-	@DisplayName("GrantWriter 는 AuthService 를 주입받지 않는다 — REQUIRES_NEW 안의 register 호출 차단")
+	@DisplayName("GrantWriter 는 AuthPort 를 주입받지 않는다 — REQUIRES_NEW 안의 register 호출 차단")
 	void grantWriter_는_auth_를_모른다() {
 		assertThat(Arrays.stream(GrantWriter.class.getDeclaredFields()).map(Field::getType))
-			.as("§6-5 — UserId 해석은 컨트롤러에서 끝났고 여기는 이미 해석된 값만 받는다")
-			.doesNotContain(AuthService.class);
+			.as("§6-5 — register 는 컨트롤러가 부르고, 여기는 이미 해석된 UserId 만 받는다")
+			.doesNotContain(AuthPort.class);
 	}
 
 	/** §4 — 웹훅 반영·recheck 반영 쓰기는 트랜잭션 안이다(별도 빈이라 프록시를 거친다). */

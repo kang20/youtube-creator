@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import kang20.ytcreator.auth.dto.Registration;
-import kang20.ytcreator.auth.internal.AnonymousKeyHasher;
-import kang20.ytcreator.auth.internal.User;
-import kang20.ytcreator.auth.internal.UserRepository;
+import kang20.ytcreator.auth.internal.service.support.AnonymousKeyHasher;
+import kang20.ytcreator.auth.internal.entity.User;
+import kang20.ytcreator.auth.internal.handler.outbound.repository.UserRepository;
 import kang20.ytcreator.config.JpaAuditingConfig;
 import kang20.ytcreator.shared.security.AnonymousKeyFixture;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,7 +46,7 @@ import org.springframework.test.context.ActiveProfiles;
 class AuthServiceTest {
 
 	@Autowired
-	private AuthService authService;
+	private AuthPort authService;
 
 	@Autowired
 	private UserRepository userRepository;
@@ -82,7 +82,7 @@ class AuthServiceTest {
 
 		// (v3) auth-design §10 — userId 는 저장 행의 id 를 타입화한 값이다. 다른 행의 id 가 실리면
 		// payment 의 모든 소유권(주문·잔량·구독)이 남의 것에 붙는다.
-		assertThat(registration.userId()).isEqualTo(new UserId(stored.getId()));
+		assertThat(registration.userId()).isEqualTo(stored.getId());
 	}
 
 	/**
@@ -223,6 +223,6 @@ class AuthServiceTest {
 		assertThat(registration.registeredAt()).isNotNull();
 
 		// (v3) auth-design §10 — userId == 저장 행의 id
-		assertThat(registration.userId()).isEqualTo(new UserId(storedFor(key).getId()));
+		assertThat(registration.userId()).isEqualTo(storedFor(key).getId());
 	}
 }

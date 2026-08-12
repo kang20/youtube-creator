@@ -15,8 +15,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import kang20.ytcreator.auth.dto.Registration;
-import kang20.ytcreator.auth.internal.AnonymousKeyHasher;
-import kang20.ytcreator.auth.internal.UserRepository;
+import kang20.ytcreator.auth.internal.service.support.AnonymousKeyHasher;
+import kang20.ytcreator.auth.internal.handler.outbound.repository.UserRepository;
 import kang20.ytcreator.config.JpaAuditingConfig;
 import kang20.ytcreator.shared.security.AnonymousKeyFixture;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +55,7 @@ class AuthConcurrencyTest {
 	private static final int THREADS = 16;
 
 	@Autowired
-	private AuthService authService;
+	private AuthPort authService;
 
 	@Autowired
 	private UserRepository userRepository;
@@ -103,7 +103,7 @@ class AuthConcurrencyTest {
 		// 경쟁에서 진 쪽의 결제·이용권이 존재하지 않는 사용자에게 붙는다(payment-design §2-1 쟁점 1).
 		assertThat(results)
 			.allSatisfy(registration ->
-				assertThat(registration.userId()).isEqualTo(new UserId(row.getId())));
+				assertThat(registration.userId()).isEqualTo(row.getId()));
 
 		// 진 쪽(newUser=false)은 ① 또는 ③에서 DB 행을 읽으므로 저장값과 정확히 같다.
 		assertThat(results).filteredOn(registration -> !registration.newUser())
