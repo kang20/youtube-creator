@@ -464,15 +464,18 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 <li><a href="#_실패_처리">실패 처리</a></li>
 </ul>
 </li>
-<li><a href="#_결제_이용권_payment">결제 · 이용권 (payment)</a>
+<li><a href="#_결제_payment">결제 (payment)</a>
 <ul class="sectlevel2">
-<li><a href="#_상품_조회">상품 조회</a></li>
-<li><a href="#_지급_grant">지급 (grant)</a></li>
-<li><a href="#_미결_주문_복원_필수_검수_시나리오">미결 주문 복원 — 필수 (검수 시나리오 ③)</a></li>
-<li><a href="#_이용권_상태">이용권 상태</a></li>
-<li><a href="#_구독_상태_재확인_stale_해소">구독 상태 재확인 (STALE 해소)</a></li>
-<li><a href="#_이용_게이트_403_두_종류">이용 게이트 — 403 두 종류</a></li>
-<li><a href="#_토스_웹훅_서버_전용_프론트_무관">토스 웹훅 (서버 전용 — 프론트 무관)</a></li>
+<li><a href="#_post_apiv1paymentsgrant_지급"><code>POST /api/v1/payments/grant</code> — 지급</a></li>
+<li><a href="#_실패_처리_2">실패 처리</a></li>
+</ul>
+</li>
+<li><a href="#_구독_subscription">구독 (subscription)</a>
+<ul class="sectlevel2">
+<li><a href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버"><code>POST /api/v1/webhooks/toss/subscription</code> — 웹훅 수신 (토스 → 서버)</a></li>
+<li><a href="#_실패_처리_웹훅">실패 처리 (웹훅)</a></li>
+<li><a href="#_post_apiv1subscriptionsrecheck_재확인_프론트_서버"><code>POST /api/v1/subscriptions/recheck</code> — 재확인 (프론트 → 서버)</a></li>
+<li><a href="#_실패_처리_재확인">실패 처리 (재확인)</a></li>
 </ul>
 </li>
 </ul>
@@ -920,7 +923,7 @@ Cache-Control: no-cache, no-store, max-age=0, must-revalidate
 Pragma: no-cache
 Expires: 0
 X-Frame-Options: DENY
-Content-Length: 426
+Content-Length: 184
 
 {
   "newUser" : true,
@@ -928,16 +931,6 @@ Content-Length: 426
   "auth" : {
     "accessToken" : "eyJhbGciOiJIUzI1NiJ9.doc-access",
     "refreshToken" : "AAAA-doc-refresh"
-  },
-  "entitlement" : {
-    "accessible" : true,
-    "credits" : 2,
-    "subscriptionStale" : false,
-    "subscription" : {
-      "status" : "ACTIVE",
-      "expiresAt" : "2026-09-08T00:00:00+09:00",
-      "autoRenew" : true
-    }
   }
 }</code></pre>
 </div>
@@ -978,36 +971,6 @@ Content-Length: 426
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>auth.refreshToken</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">갱신용 불투명 값(14일·회전). 로컬에만 보관한다. 재호출 = 재로그인 — 매번 새로 발급되고 기존 값은 폐기되지 않는다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.accessible</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">이용 가능 여부 — S1 배지 분기는 이 값 하나로만(payment.md §5-3)</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.credits</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Number</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">남은 횟수권 — 'n회 남음' 배지</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscriptionStale</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">true 면 결제 유도가 아니라 구독 재확인 흐름으로 간다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscription.status</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">구독 상태 6종 + NONE. 안내 문구용</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscription.expiresAt</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">만료 시각(+09:00). 이력 없으면 null</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscription.autoRenew</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">자동 갱신 예정</p></td>
 </tr>
 </tbody>
 </table>
@@ -1126,120 +1089,11 @@ Content-Length: 89
 </div>
 </div>
 <div class="sect1">
-<h2 id="_결제_이용권_payment"><a class="link" href="#_결제_이용권_payment">결제 · 이용권 (payment)</a></h2>
+<h2 id="_결제_payment"><a class="link" href="#_결제_payment">결제 (payment)</a></h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>돈은 토스가 받고, <strong>"누가 무엇을 쓸 수 있는가"는 서버가 기억한다.</strong>
-결제의 절반은 클라 SDK 안에서 일어나므로, 이 장은 HTTP 계약과 함께 <strong>클라이언트 책임</strong>을 명시한다.
-요구·정책의 정본은 <code>backend/docs/domain/payment.md</code> 다.</p>
-</div>
-<div class="paragraph">
-<p>이용권은 두 종류다: <strong>횟수권</strong>(단건 2,200원 · 1회) · <strong>기간권</strong>(월 구독 3,960원 · 무제한, 30일 주기).</p>
-</div>
-<div class="sect2">
-<h3 id="_상품_조회"><a class="link" href="#_상품_조회">상품 조회</a></h3>
-<div class="paragraph">
-<p><code>GET /api/v1/payments/products</code> — <strong>인증 불필요</strong> (결제 전 설득 화면의 데이터다).</p>
-</div>
-<div class="sect3">
-<h4 id="_상품_조회_http_request"><a class="link" href="#_상품_조회_http_request">HTTP request</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">GET /api/v1/payments/products HTTP/1.1
-Host: api.example.com</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_상품_조회_http_response"><a class="link" href="#_상품_조회_http_response">HTTP response</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 200 OK
-Vary: Origin
-Vary: Access-Control-Request-Method
-Vary: Access-Control-Request-Headers
-Content-Type: application/json
-X-Content-Type-Options: nosniff
-X-XSS-Protection: 0
-Cache-Control: no-cache, no-store, max-age=0, must-revalidate
-Pragma: no-cache
-Expires: 0
-X-Frame-Options: DENY
-Content-Length: 242
-
-{
-  "oneTime" : {
-    "sku" : "sku-one-time",
-    "productType" : "CONSUMABLE"
-  },
-  "subscription" : {
-    "sku" : "sku-subscription",
-    "productType" : "SUBSCRIPTION",
-    "renewalCycle" : "MONTHLY",
-    "offerId" : null
-  }
-}</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_상품_조회_response_fields"><a class="link" href="#_상품_조회_response_fields">Response fields</a></h4>
-<table class="tableblock frame-all grid-all stretch">
-<colgroup>
-<col style="width: 33.3333%;">
-<col style="width: 33.3333%;">
-<col style="width: 33.3334%;">
-</colgroup>
-<thead>
-<tr>
-<th class="tableblock halign-left valign-top">Path</th>
-<th class="tableblock halign-left valign-top">Type</th>
-<th class="tableblock halign-left valign-top">Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>oneTime</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Object</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">단건 상품. null 이면 미노출 — 결제 버튼을 숨긴다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>oneTime.sku</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">상품 고유 ID — 이 값으로 getProductItemList() 의 displayAmount 를 찾는다. 가격 하드코딩 금지</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>oneTime.productType</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">CONSUMABLE → createOneTimePurchaseOrder 로 주문한다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Object</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">구독 상품. null 이면 미노출</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.sku</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">구독 상품 고유 ID</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.productType</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">SUBSCRIPTION → createSubscriptionPurchaseOrder 로 주문한다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.renewalCycle</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">MONTHLY = 30일 고정(달력 월 아님)</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.offerId</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Null</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">프로모션 오퍼. null 이면 기본 가격</p></td>
-</tr>
-</tbody>
-</table>
+<p>돈은 토스가 받고, <strong>"누가 무엇을 쓸 수 있는가"는 서버가 기억한다.</strong> 요구 정본은
+<code>backend/docs/new-domain/payment-v2.md</code> [주문 애그리거트] 절이다.</p>
 </div>
 <div class="admonitionblock important">
 <table>
@@ -1249,54 +1103,52 @@ Content-Length: 242
 </td>
 <td class="content">
 <div class="paragraph">
-<p><strong>가격을 서버가 내려주지 않는다.</strong> 응답의 <code>sku</code> 로 SDK <code>getProductItemList()</code> 결과를 찾아
-<code>displayAmount</code> 를 표시한다 — SDK 만이 스토어 결제창과 일치하는 금액을 안다. <strong>가격 하드코딩 금지.</strong></p>
+<p><strong>엔드포인트는 지급 하나뿐이다.</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>상품 조회 API 가 없다.</strong> 가격은 결제 SDK 가 정본이라 서버가 말하면 결제창과 어긋난다.
+상품 코드도 코드가 아니라 <strong>설정</strong>에 있고, 비어 있는 유형은 어떤 주문으로도 지급되지 않는다(미노출 상품).</p>
+</li>
+<li>
+<p><strong>이용권 조회 API 가 없다.</strong> 기간권과 횟수권을 합성하는 읽기 모델이 아직 없다 — 진입 응답의
+이용권 필드도 비어 있다. <strong>프론트 계약으로 확정되기 전이다</strong>(payment-v2.md "이번 범위에서 미뤄둔 것").</p>
+</li>
+<li>
+<p><strong>소모(차감) API 가 없다.</strong> 부르는 쪽이 자막 생성 작업인데 그 도메인이 아직 없다.</p>
+</li>
+</ul>
 </div>
 </td>
 </tr>
 </table>
 </div>
-<div class="ulist">
-<ul>
-<li>
-<p><code>productType</code> 으로 주문 함수를 가른다 — <code>CONSUMABLE</code> → <code>createOneTimePurchaseOrder</code>,
-<code>SUBSCRIPTION</code> → <code>createSubscriptionPurchaseOrder</code>.</p>
-</li>
-<li>
-<p>상품 키(<code>oneTime</code>/<code>subscription</code>)가 <code>null</code> 이면 <strong>그 결제 버튼을 숨긴다</strong> (미노출 상품).</p>
-</li>
-<li>
-<p><strong>구독 최소 앱 버전이 단건보다 높다</strong> — Android 5.253.0 / iOS 5.250.0 (단건 5.219.0).
-미만 버전에서는 <strong>구독 버튼을 숨기고 단건만 노출</strong>한다.</p>
-</li>
-</ul>
-</div>
-</div>
 <div class="sect2">
-<h3 id="_지급_grant"><a class="link" href="#_지급_grant">지급 (grant)</a></h3>
+<h3 id="_post_apiv1paymentsgrant_지급"><a class="link" href="#_post_apiv1paymentsgrant_지급"><code>POST /api/v1/payments/grant</code> — 지급</a></h3>
 <div class="paragraph">
-<p><code>POST /api/v1/payments/grant</code> — <strong>인증 필요.</strong> <code>processProductGrant</code> 콜백과 미결 주문 복원이
-<strong>같은 엔드포인트</strong>를 쓴다(멱등). 단건·구독도 같은 엔드포인트 — 상품 판별은 서버가 토스 응답의
-<code>sku</code> 로 한다. <strong><code>sku</code> 를 요청에 싣지 않는다.</strong></p>
+<p>결제된 주문을 우리 이용권으로 바꾼다. 인증 필요.
+<code>processProductGrant</code> 콜백과 <strong>미결 주문 복원이 같은 엔드포인트</strong>를 쓰고,
+단건·구독도 같은 엔드포인트다 — 무엇을 샀는지는 서버가 <strong>토스에 직접 물어</strong> 판별한다.</p>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_http_request"><a class="link" href="#_지급_grant_http_request">HTTP request</a></h4>
+<h4 id="_post_apiv1paymentsgrant_지급_http_request"><a class="link" href="#_post_apiv1paymentsgrant_지급_http_request">HTTP request</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/payments/grant HTTP/1.1
 Content-Type: application/json;charset=UTF-8
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3NyIsImlhdCI6MTc4NjU0MDIzOCwiZXhwIjoxNzg2NTQyMDM4fQ.imfqcXIK4PHN2KOKtglT77amxnBnpZZIW4MuT7APyTo
-Content-Length: 33
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcwNDg3MTYsImV4cCI6MTc4NzA1MDUxNn0.a4a7gnAaWIhSZc893bFIek1Cr_ZXdz2OjUQcjXExwaQ
+Content-Length: 58
 Host: api.example.com
 
 {
-  "orderId" : "order-doc-1"
+  "orderId" : "13c9a1ff-6f0e-4a2b-9f10-5c7a1e2d3b4c"
 }</code></pre>
 </div>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_request_headers"><a class="link" href="#_지급_grant_request_headers">Request headers</a></h4>
+<h4 id="_post_apiv1paymentsgrant_지급_request_headers"><a class="link" href="#_post_apiv1paymentsgrant_지급_request_headers">Request headers</a></h4>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
 <col style="width: 50%;">
@@ -1311,13 +1163,13 @@ Host: api.example.com
 <tbody>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Authorization</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Bearer {access} — 부트스트랩이 발급한 JWT(auth.md §5-1)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Bearer access 토큰 — 이 토큰의 사용자가 그대로 주문의 소유자가 된다(선점)</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_request_fields"><a class="link" href="#_지급_grant_request_fields">Request fields</a></h4>
+<h4 id="_post_apiv1paymentsgrant_지급_request_fields"><a class="link" href="#_post_apiv1paymentsgrant_지급_request_fields">Request fields</a></h4>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
 <col style="width: 33.3333%;">
@@ -1335,13 +1187,13 @@ Host: api.example.com
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>orderId</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">processProductGrant 콜백 또는 getPendingOrders() 의 주문 ID. sku 는 보내지 않는다 — 서버가 토스 응답으로 판별한다</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">토스가 발급한 주문 식별자. &lt;b&gt;sku 는 보내지 않는다&lt;/b&gt; — 무엇을 샀는지는 토스가 답한 값으로만 판별한다</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_http_response"><a class="link" href="#_지급_grant_http_response">HTTP response</a></h4>
+<h4 id="_post_apiv1paymentsgrant_지급_http_response"><a class="link" href="#_post_apiv1paymentsgrant_지급_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 200 OK
@@ -1355,27 +1207,17 @@ Cache-Control: no-cache, no-store, max-age=0, must-revalidate
 Pragma: no-cache
 Expires: 0
 X-Frame-Options: DENY
-Content-Length: 275
+Content-Length: 57
 
 {
   "granted" : true,
-  "productType" : "CONSUMABLE",
-  "entitlement" : {
-    "accessible" : true,
-    "credits" : 3,
-    "subscriptionStale" : false,
-    "subscription" : {
-      "status" : "NONE",
-      "expiresAt" : null,
-      "autoRenew" : false
-    }
-  }
+  "productType" : "CONSUMABLE"
 }</code></pre>
 </div>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_response_fields"><a class="link" href="#_지급_grant_response_fields">Response fields</a></h4>
+<h4 id="_post_apiv1paymentsgrant_지급_response_fields"><a class="link" href="#_post_apiv1paymentsgrant_지급_response_fields">Response fields</a></h4>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
 <col style="width: 33.3333%;">
@@ -1393,118 +1235,61 @@ Content-Length: 275
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>granted</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">지급된 상태면 true. 재요청(복원 재전송)도 true — 200 이면 콜백에 true 를 반환한다</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">지급됐으면 true. 재요청도 true 다(멱등)</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>productType</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">토스 sku 로 판별된 상품 유형(CONSUMABLE | SUBSCRIPTION)</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.accessible</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">지급 반영 후 이용 가능 여부 — 분기는 이 값 하나로만</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.credits</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Number</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">남은 횟수권 — 재요청이어도 현재 잔량이다(+1 재반영이면 멱등 위반)</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscriptionStale</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">구독 상태 미확인 신호 — true 면 recheck 흐름</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscription.status</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">구독 상태 6종 또는 NONE. 분기 근거로 쓰지 않는다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscription.expiresAt</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Null</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">만료 시각(+09:00). 없으면 null</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>entitlement.subscription.autoRenew</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">자동 갱신 예정 여부</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">무엇을 지급했는지 — CONSUMABLE(횟수권) · SUBSCRIPTION(구독). 화면 분기용</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="admonitionblock important">
+<div class="ulist">
+<ul>
+<li>
+<p><strong><code>sku</code> 를 요청에 싣지 않는다.</strong> 클라이언트의 주장으로 상품을 정하지 않는다. 서버가 토스에
+주문 상태를 조회해 받은 상품 코드로만 판별하고, 모르는 코드면 남의 상품이므로 지급하지 않는다.</p>
+</li>
+<li>
+<p><strong>같은 주문을 몇 번 요청해도 정확히 한 번만 지급하고, 재요청도 200 <code>granted: true</code> 다.</strong>
+멱등의 근거는 <code>orderId</code> 하나다. 중복을 오류로 만들면 복원 흐름 자체가 깨진다.</p>
+</li>
+<li>
+<p><strong>먼저 지급을 요청한 사용자가 주문의 소유자가 된다(선점).</strong> 토스에 "이 주문이 누구 것인가"를
+물어볼 수단이 없어서, 소유자는 끝까지 클라이언트의 주장이다. 보안 통제가 아니라 먼저 온 쪽을
+지키는 규칙이다.</p>
+</li>
+<li>
+<p><strong>응답에 잔량이 없다.</strong> 잔량의 권위는 횟수권 쪽에 있고 지급 경로에는 그것을 읽을 수단이 없다.
+<code>productType</code> 은 화면 분기용이다 — <code>CONSUMABLE</code>(횟수권) · <code>SUBSCRIPTION</code>(구독).</p>
+</li>
+<li>
+<p><strong>30초 안에 답한다.</strong> 넘기면 사용자에게 환불 안내 화면이 노출된다. 시간이 모자라면 붙잡지 않고
+실패로 답하며, 남은 것은 복원이 처리한다.</p>
+</li>
+</ul>
+</div>
+<div class="admonitionblock caution">
 <table>
 <tr>
 <td class="icon">
-<i class="fa icon-important" title="Important"></i>
+<i class="fa icon-caution" title="Caution"></i>
 </td>
 <td class="content">
 <div class="paragraph">
-<p><strong>콜백 반환값 규칙: 200 일 때만 <code>true</code>, 그 외 전부 <code>false</code>.</strong></p>
-</div>
-<div class="paragraph">
-<p><code>false</code> 는 <strong>결제 취소가 아니다</strong> — 주문은 미결 상태로 남아 복원 대상이 된다.
-안내 문구를 "결제 실패"로 쓰면 사실과 다르다. 재요청(복원·재시도)도 에러가 아니라 <strong>200</strong> 이다.</p>
+<p><strong>주문 식별자는 어떤 응답에도 실리지 않는다</strong> — 성공 응답에도, 실패 메시지에도 없다.
+주문 식별자를 아는 것은 <strong>미지급 주문을 가로챌 수 있는 것과 같다</strong>.</p>
 </div>
 </td>
 </tr>
 </table>
 </div>
-<div class="paragraph">
-<p>응답별 프론트 행동:</p>
 </div>
-<table class="tableblock frame-all grid-all stretch">
-<colgroup>
-<col style="width: 33.3333%;">
-<col style="width: 33.3333%;">
-<col style="width: 33.3334%;">
-</colgroup>
-<thead>
-<tr>
-<th class="tableblock halign-left valign-top">응답</th>
-<th class="tableblock halign-left valign-top">콜백 반환</th>
-<th class="tableblock halign-left valign-top">프론트 행동</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">200</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>true</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>completeProductGrant({ params: { orderId } })</code> 호출 후 진행</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">409 <code>PAY_002</code> (결제 미확정)</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">"잠시 후 반영" 안내 → <strong>복원에 위임. 재시도 루프 금지</strong></p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">409 <code>PAY_003</code> (실패·환불)</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">문의 안내. <strong>재시도 금지</strong></p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">404 <code>PAY_004</code> (주문 없음)</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">문의 안내. <strong>재시도 금지</strong></p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">409 <code>PAY_005</code> (타인 귀속)</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">문의 안내. <strong>재시도 금지</strong> (복원 중이면 조용히 건너뜀)</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">502 <code>PAY_006</code> (토스 확인 실패)</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">"잠시 후 재시도" → <strong>복원에 위임</strong></p></td>
-</tr>
-</tbody>
-</table>
-<div class="paragraph">
-<p>실패 응답 예시:</p>
-</div>
+<div class="sect2">
+<h3 id="_실패_처리_2"><a class="link" href="#_실패_처리_2">실패 처리</a></h3>
 <div class="sect3">
-<h4 id="_지급_grant_http_response"><a class="link" href="#_지급_grant_http_response">HTTP response</a></h4>
+<h4 id="_실패_처리_2_http_response"><a class="link" href="#_실패_처리_2_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 409 Conflict
@@ -1528,7 +1313,7 @@ Content-Length: 91
 </div>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_http_response"><a class="link" href="#_지급_grant_http_response">HTTP response</a></h4>
+<h4 id="_실패_처리_2_http_response"><a class="link" href="#_실패_처리_2_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 409 Conflict
@@ -1552,7 +1337,7 @@ Content-Length: 91
 </div>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_http_response"><a class="link" href="#_지급_grant_http_response">HTTP response</a></h4>
+<h4 id="_실패_처리_2_http_response"><a class="link" href="#_실패_처리_2_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 404 Not Found
@@ -1576,7 +1361,7 @@ Content-Length: 79
 </div>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_http_response"><a class="link" href="#_지급_grant_http_response">HTTP response</a></h4>
+<h4 id="_실패_처리_2_http_response"><a class="link" href="#_실패_처리_2_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 409 Conflict
@@ -1600,7 +1385,7 @@ Content-Length: 94
 </div>
 </div>
 <div class="sect3">
-<h4 id="_지급_grant_http_response"><a class="link" href="#_지급_grant_http_response">HTTP response</a></h4>
+<h4 id="_실패_처리_2_http_response"><a class="link" href="#_실패_처리_2_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 502 Bad Gateway
@@ -1624,367 +1409,9 @@ Content-Length: 91
 </div>
 </div>
 <div class="paragraph">
-<p>기타 클라 책임 (검수 항목):</p>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p>결제 중 <strong>음악·영상을 일시정지</strong>하고 종료 후 재개한다.</p>
-</li>
-<li>
-<p>주문 함수의 반환값 <code>cleanup()</code> 을 <strong>반드시 호출</strong>한다.</p>
-</li>
-<li>
-<p>결제 시작 전 SDK 에러(<code>USER_CANCELED</code>·<code>UNSUPPORTED_APP_VERSION</code> 등)는 서버 호출 없이
-사유를 사용자에게 알린다.</p>
-</li>
-</ul>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_미결_주문_복원_필수_검수_시나리오"><a class="link" href="#_미결_주문_복원_필수_검수_시나리오">미결 주문 복원 — 필수 (검수 시나리오 ③)</a></h3>
-<div class="admonitionblock caution">
-<table>
-<tr>
-<td class="icon">
-<i class="fa icon-caution" title="Caution"></i>
-</td>
-<td class="content">
-<div class="paragraph">
-<p><strong>이 절에는 서버 스니펫이 없다 — 전부 클라 전용 흐름이다. 그래도 필수 계약이다.</strong>
-이 흐름이 없으면 "결제는 됐는데 못 쓰는" 사용자가 남는다. 30초 초과·앱 강제종료·네트워크 단절은
-정상 흐름에서도 일어난다.</p>
-</div>
-</td>
-</tr>
-</table>
-</div>
-<div class="paragraph">
-<p>앱 기동(부트스트랩 성공) 직후, <strong>화면을 막지 않고 배경에서</strong>:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre>IAP.getPendingOrders()
- ├─ undefined(미지원) / 빈 배열 → 통과
- └─ 주문 N건 → 각 orderId 마다 POST /api/v1/payments/grant
-     ├─ 200          → completeProductGrant({ params: { orderId } }) 로 미결 종료
-     │                  ⚠️ 반환이 boolean | undefined — undefined 방어
-     ├─ 409 PAY_002  → 닫지 않고 다음 기동에 재시도
-     ├─ 409 PAY_003 / 404 PAY_004 → 지급 대상 아님 → completeProductGrant 로 닫는다
-     ├─ 409 PAY_005  → 남의 주문. 조용히 건너뛴다 (사용자에게 노출 금지)
-     └─ 502 PAY_006  → 다음 기동에 재시도. 알리지 않는다</pre>
-</div>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p>진입이 느려지면 검수 "인터랙션 2초"에 걸린다 — <strong>반드시 배경 실행.</strong></p>
-</li>
-</ul>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_이용권_상태"><a class="link" href="#_이용권_상태">이용권 상태</a></h3>
-<div class="paragraph">
-<p><code>GET /api/v1/payments/entitlement</code> — <strong>인증 필요.</strong> 결제 직후·403 복귀 후 재확인용.
-진입 시에는 부트스트랩 응답의 <code>entitlement</code> 를 쓴다(모양이 같다).</p>
-</div>
-<div class="sect3">
-<h4 id="_이용권_상태_http_request"><a class="link" href="#_이용권_상태_http_request">HTTP request</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">GET /api/v1/payments/entitlement HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3NyIsImlhdCI6MTc4NjU0MDIzNywiZXhwIjoxNzg2NTQyMDM3fQ.e4j_leLL9gRcMFOktbJY6vWLTVVlLALLXwBJa4N5mdE
-Host: api.example.com</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_이용권_상태_http_response"><a class="link" href="#_이용권_상태_http_response">HTTP response</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 200 OK
-Vary: Origin
-Vary: Access-Control-Request-Method
-Vary: Access-Control-Request-Headers
-Content-Type: application/json
-X-Content-Type-Options: nosniff
-X-XSS-Protection: 0
-Cache-Control: no-cache, no-store, max-age=0, must-revalidate
-Pragma: no-cache
-Expires: 0
-X-Frame-Options: DENY
-Content-Length: 203
-
-{
-  "accessible" : true,
-  "credits" : 0,
-  "subscriptionStale" : false,
-  "subscription" : {
-    "status" : "ACTIVE",
-    "expiresAt" : "2026-09-08T00:00:00+09:00",
-    "autoRenew" : true
-  }
-}</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_이용권_상태_response_fields"><a class="link" href="#_이용권_상태_response_fields">Response fields</a></h4>
-<table class="tableblock frame-all grid-all stretch">
-<colgroup>
-<col style="width: 33.3333%;">
-<col style="width: 33.3333%;">
-<col style="width: 33.3334%;">
-</colgroup>
-<thead>
-<tr>
-<th class="tableblock halign-left valign-top">Path</th>
-<th class="tableblock halign-left valign-top">Type</th>
-<th class="tableblock halign-left valign-top">Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>accessible</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">이용 가능 여부 — 프론트 분기는 이 값 하나로만(§4-3 판정 결과)</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>credits</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Number</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">남은 횟수권 — 'n회 남음' 표시</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscriptionStale</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">true 면 결제 유도가 아니라 recheck 흐름으로 간다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.status</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">토스 원문 6종 + NONE. 안내 문구용 — 분기 근거로 쓰지 않는다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.expiresAt</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">만료 시각(+09:00 오프셋 포함). 없으면 null</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.autoRenew</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">자동 갱신 예정. false 면 '해지 예약됨' 표시</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="admonitionblock important">
-<table>
-<tr>
-<td class="icon">
-<i class="fa icon-important" title="Important"></i>
-</td>
-<td class="content">
-<div class="paragraph">
-<p><strong>분기는 <code>accessible</code> 하나로만 한다.</strong> <code>subscription.status</code> 는 안내 문구용이지 분기 근거가 아니다.
-서버가 정책(유예·STALE 판정)을 계산해 내려준다 — 프론트가 대신 판단하면 서버 게이트와 갈린다.</p>
-</div>
-</td>
-</tr>
-</table>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p>웹훅(구독 갱신·만료)은 <strong>클라와 무관하다.</strong> 갱신된 상태는 다음 진입의 <code>entitlement</code> 로만 보인다 —
-실시간 통지는 없다.</p>
-</li>
-<li>
-<p>이용권이 없어도 404 가 아니라 200 이다 — "없음"은 정상 상태다.</p>
-</li>
-</ul>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_구독_상태_재확인_stale_해소"><a class="link" href="#_구독_상태_재확인_stale_해소">구독 상태 재확인 (STALE 해소)</a></h3>
-<div class="paragraph">
-<p>서버가 구독 만료 시각이 지났는데 웹훅을 받지 못하면 — 만료인지 갱신인지 모르는 상태 —
-<code>entitlement</code> 응답에 <code>subscriptionStale: true</code> 를 싣고 게이트를 닫는다.</p>
-</div>
-<div class="sect3">
-<h4 id="_구독_상태_재확인_stale_해소_http_response"><a class="link" href="#_구독_상태_재확인_stale_해소_http_response">HTTP response</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 200 OK
-Vary: Origin
-Vary: Access-Control-Request-Method
-Vary: Access-Control-Request-Headers
-Content-Type: application/json
-X-Content-Type-Options: nosniff
-X-XSS-Protection: 0
-Cache-Control: no-cache, no-store, max-age=0, must-revalidate
-Pragma: no-cache
-Expires: 0
-X-Frame-Options: DENY
-Content-Length: 203
-
-{
-  "accessible" : false,
-  "credits" : 0,
-  "subscriptionStale" : true,
-  "subscription" : {
-    "status" : "ACTIVE",
-    "expiresAt" : "2026-08-08T00:00:00+09:00",
-    "autoRenew" : true
-  }
-}</code></pre>
-</div>
-</div>
-</div>
-<div class="admonitionblock important">
-<table>
-<tr>
-<td class="icon">
-<i class="fa icon-important" title="Important"></i>
-</td>
-<td class="content">
-<div class="paragraph">
-<p><strong><code>subscriptionStale: true</code> 는 결제 유도가 아니다</strong> — 이미 결제한 사용자일 가능성이 높다.
-아래 재확인 흐름으로 해소한다.</p>
-</div>
-</td>
-</tr>
-</table>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre>1. IAP.getCompletedOrRefundedOrders()               ← 최초 구독 orderId 확보
-   (서버는 orderId 를 내려주지 않는다 — SDK 에서 직접 얻는다)
-2. IAP.getSubscriptionInfo({ params: { orderId } })  ← 현재 구독 상태 조회
-3. POST /api/v1/payments/subscription/recheck        ← 결과를 서버로
-   ├─ 200 → 게이트 재개방 (또는 만료 확정 → 결제 유도로 전환)
-   └─ 404 PAY_004 → 구독 이력 없음. 문의 안내</pre>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_구독_상태_재확인_stale_해소_http_request"><a class="link" href="#_구독_상태_재확인_stale_해소_http_request">HTTP request</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/payments/subscription/recheck HTTP/1.1
-Content-Type: application/json;charset=UTF-8
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3NyIsImlhdCI6MTc4NjU0MDIzNywiZXhwIjoxNzg2NTQyMDM3fQ.e4j_leLL9gRcMFOktbJY6vWLTVVlLALLXwBJa4N5mdE
-Content-Length: 96
-Host: api.example.com
-
-{
-  "status" : "ACTIVE",
-  "expiresAt" : "2026-09-08T00:00:00+09:00",
-  "autoRenew" : true
-}</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_구독_상태_재확인_stale_해소_request_fields"><a class="link" href="#_구독_상태_재확인_stale_해소_request_fields">Request fields</a></h4>
-<table class="tableblock frame-all grid-all stretch">
-<colgroup>
-<col style="width: 33.3333%;">
-<col style="width: 33.3333%;">
-<col style="width: 33.3334%;">
-</colgroup>
-<thead>
-<tr>
-<th class="tableblock halign-left valign-top">Path</th>
-<th class="tableblock halign-left valign-top">Type</th>
-<th class="tableblock halign-left valign-top">Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>status</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">getSubscriptionInfo 의 status 원문. orderId 는 보내지 않는다 — SDK 에서 직접 얻는 값이라 서버가 알 필요 없다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>expiresAt</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">만료 시각 — 오프셋 포함 형식. SDK 가 null 을 줄 수 있다</p></td>
-</tr>
-<tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>autoRenew</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">isAutoRenew 값</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="sect3">
-<h4 id="_구독_상태_재확인_stale_해소_http_response"><a class="link" href="#_구독_상태_재확인_stale_해소_http_response">HTTP response</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 200 OK
-Vary: Origin
-Vary: Access-Control-Request-Method
-Vary: Access-Control-Request-Headers
-Content-Type: application/json
-X-Content-Type-Options: nosniff
-X-XSS-Protection: 0
-Cache-Control: no-cache, no-store, max-age=0, must-revalidate
-Pragma: no-cache
-Expires: 0
-X-Frame-Options: DENY
-Content-Length: 203
-
-{
-  "accessible" : true,
-  "credits" : 0,
-  "subscriptionStale" : false,
-  "subscription" : {
-    "status" : "ACTIVE",
-    "expiresAt" : "2026-09-08T00:00:00+09:00",
-    "autoRenew" : true
-  }
-}</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_구독_상태_재확인_stale_해소_http_response"><a class="link" href="#_구독_상태_재확인_stale_해소_http_response">HTTP response</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 404 Not Found
-Vary: Origin
-Vary: Access-Control-Request-Method
-Vary: Access-Control-Request-Headers
-Content-Type: application/json
-X-Content-Type-Options: nosniff
-X-XSS-Protection: 0
-Cache-Control: no-cache, no-store, max-age=0, must-revalidate
-Pragma: no-cache
-Expires: 0
-X-Frame-Options: DENY
-Content-Length: 79
-
-{
-  "code" : "PAY_004",
-  "message" : "주문을 찾을 수 없습니다."
-}</code></pre>
-</div>
-</div>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p>두 SDK 함수가 <code>undefined</code> 를 반환하는 구버전(Android 5.253.0 / iOS 5.250.0 미만)에서는
-해소가 불가능하다 — 안내 후 문의로 유도한다.</p>
-</li>
-</ul>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_이용_게이트_403_두_종류"><a class="link" href="#_이용_게이트_403_두_종류">이용 게이트 — 403 두 종류</a></h3>
-<div class="paragraph">
-<p>유료 기능(작업 생성)은 이용권 게이트를 거친다. <strong>403 이 두 종류이고 화면이 정반대다:</strong></p>
+<p><strong>콜백 반환값 규칙: 200 일 때만 <code>true</code>, 그 외 전부 <code>false</code>.</strong>
+<code>false</code> 는 <strong>결제 취소가 아니다</strong> — 주문은 미결 상태로 남아 복원 대상이 된다.
+안내 문구를 "결제 실패"로 쓰면 사실과 다르다.</p>
 </div>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
@@ -1994,123 +1421,138 @@ Content-Length: 79
 </colgroup>
 <thead>
 <tr>
-<th class="tableblock halign-left valign-top">코드</th>
-<th class="tableblock halign-left valign-top">의미</th>
+<th class="tableblock halign-left valign-top">응답</th>
+<th class="tableblock halign-left valign-top">콜백 반환</th>
 <th class="tableblock halign-left valign-top">프론트 행동</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">403 <code>PAY_001</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">이용 가능한 이용권이 없다</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>결제 유도 화면</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">200</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>true</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>completeProductGrant({ params: { orderId } })</code> 호출 후 진행. <strong>재요청도 200 이다</strong></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">403 <code>PAY_007</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">구독 상태 확인이 필요하다 (STALE)</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>재확인 흐름</strong> (결제 유도 금지)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">409 <code>PAY_002</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">주문이 아직 진행 중이다. "잠시 후 반영" 안내 → <strong>복원에 위임. 재시도 루프 금지</strong></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">409 <code>PAY_003</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">결제가 완료되지 않았거나 환불된 주문. 문의 안내 — <strong>재시도해도 결과가 같다</strong></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">404 <code>PAY_004</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">우리 미니앱의 주문이 아니다(모르는 상품 코드 포함). 재시도 금지</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">409 <code>PAY_005</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">이미 다른 사용자에게 귀속된 주문. <strong>복원 중이면 조용히 건너뛴다</strong></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">502 <code>PAY_006</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">토스에 주문 상태를 확인하지 못했다(실패 응답·타임아웃). <strong>재시도 대상</strong></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">400 <code>COMMON_001</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>orderId</code> 누락·공백. 형식 축이라 지급 판정(<code>PAY_*</code>)과 섞지 않는다</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">401</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>false</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">토큰 문제. 인증 절 참조</p></td>
 </tr>
 </tbody>
 </table>
-<div class="admonitionblock caution">
+<div class="admonitionblock note">
 <table>
 <tr>
 <td class="icon">
-<i class="fa icon-caution" title="Caution"></i>
+<i class="fa icon-note" title="Note"></i>
 </td>
 <td class="content">
-<div class="ulist">
-<ul>
-<li>
-<p><strong>401 에 결제 유도를 띄우지 않는다</strong> — 인증 문제이지 결제 문제가 아니다. 이미 결제한
-사용자에게 다시 결제를 요구하게 된다. 401 처리는 공통 규격(인증 게이트) 절을 따른다.</p>
-</li>
-<li>
-<p><strong>결제 유도 화면에는 닫기 경로를 반드시 둔다</strong> — "나갈 선택지가 없는 경우"는
-다크패턴으로 <strong>출시 불가 사유</strong>다.</p>
-</li>
-</ul>
+<div class="paragraph">
+<p><strong>지급이 확정되면 무엇을 지급했는지가 사실로 발행되고</strong>, 이용권을 만드는 일은 그 사실을 받는 쪽
+(<code>credit</code> · <code>subscription</code> 모듈)이 한다. 응답이 200 이라는 것은 <strong>원장이 확정됐다</strong>는 뜻이고,
+이용권 반영은 그 직후 비동기로 이어진다.</p>
 </div>
 </td>
 </tr>
 </table>
 </div>
-<div class="ulist">
-<ul>
-<li>
-<p>작업 목록·상태·결과 조회는 게이트 밖이다 — 이미 만든 결과물은 이용권 없이도 본다.</p>
-</li>
-</ul>
 </div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_구독_subscription"><a class="link" href="#_구독_subscription">구독 (subscription)</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>매월 자동 갱신되는 <strong>계약</strong>과 그 계약이 만드는 <strong>기간권</strong>. 요구 정본은
+<code>backend/docs/new-domain/payment.md</code> [구독 애그리거트] 절이다.</p>
+</div>
+<div class="admonitionblock important">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-important" title="Important"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p><strong>서버가 구독 상태를 물어볼 API 는 없다.</strong> 최초 결제 이후의 상태 변화를 아는 경로는 웹훅 하나뿐이고,
+어긋나도 바로잡을 조회 수단이 없다. 그래서 이 도메인의 엔드포인트는 둘 다 <strong>상태를 받아 반영하는</strong>
+경로이며, 조회 경로가 아니다.</p>
+</div>
+<div class="paragraph">
+<p><strong>구독을 만드는 API 는 없다.</strong> 구독은 결제 지급(<code>POST /api/v1/payments/grant</code>)이 확정될 때
+서버 내부에서 열린다 — 웹훅으로도, 재확인으로도 구독은 생기지 않는다.</p>
+</div>
+</td>
+</tr>
+</table>
 </div>
 <div class="sect2">
-<h3 id="_토스_웹훅_서버_전용_프론트_무관"><a class="link" href="#_토스_웹훅_서버_전용_프론트_무관">토스 웹훅 (서버 전용 — 프론트 무관)</a></h3>
+<h3 id="_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버"><a class="link" href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버"><code>POST /api/v1/webhooks/toss/subscription</code> — 웹훅 수신 (토스 → 서버)</a></h3>
 <div class="paragraph">
-<p><code>POST /api/v1/webhooks/toss/payment</code> — 토스 서버가 구독 상태 변경을 통지한다.
-인증 게이트 밖이며 <strong>Basic Auth</strong> 로 진위를 검증한다. 프론트가 호출할 일이 없다.</p>
+<p><strong>프론트가 부르는 API 가 아니다.</strong> 토스 콘솔의 콜백 URL 로 등록한다.</p>
+</div>
+<div class="paragraph">
+<p>인증 게이트 밖(토스는 우리 토큰을 보내지 않는다)이고, 대신 <strong>공유 시크릿 헤더</strong>로 막는다.
+이벤트는 2종이다 — <code>callback.registration_verification</code>(<strong>이걸 정상 수신해야 URL 이 활성화된다</strong>)과
+<code>subscription.status_changed</code>.</p>
 </div>
 <div class="sect3">
-<h4 id="_토스_웹훅_서버_전용_프론트_무관_http_request"><a class="link" href="#_토스_웹훅_서버_전용_프론트_무관_http_request">HTTP request</a></h4>
+<h4 id="_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_request"><a class="link" href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_request">HTTP request</a></h4>
 <div class="listingblock">
 <div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/webhooks/toss/payment HTTP/1.1
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/webhooks/toss/subscription HTTP/1.1
 Content-Type: application/json;charset=UTF-8
-Authorization: Basic dG9zcy13ZWJob29rOndlYmhvb2stc2VjcmV0
-Content-Length: 99
-Host: api.example.com
-
-{
-  "eventType" : "callback.registration_verification",
-  "occurredAt" : "2026-08-11T03:00:00"
-}</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_토스_웹훅_서버_전용_프론트_무관_http_response"><a class="link" href="#_토스_웹훅_서버_전용_프론트_무관_http_response">HTTP response</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 204 No Content
-Vary: Origin
-Vary: Access-Control-Request-Method
-Vary: Access-Control-Request-Headers
-X-Content-Type-Options: nosniff
-X-XSS-Protection: 0
-Cache-Control: no-cache, no-store, max-age=0, must-revalidate
-Pragma: no-cache
-Expires: 0
-X-Frame-Options: DENY</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_토스_웹훅_서버_전용_프론트_무관_http_request"><a class="link" href="#_토스_웹훅_서버_전용_프론트_무관_http_request">HTTP request</a></h4>
-<div class="listingblock">
-<div class="content">
-<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/webhooks/toss/payment HTTP/1.1
-Content-Type: application/json;charset=UTF-8
-Authorization: Basic dG9zcy13ZWJob29rOndlYmhvb2stc2VjcmV0
-Content-Length: 547
+Authorization: Basic eXRjcmVhdG9yOnRlc3Qtd2ViaG9vay1zZWNyZXQ=
+Content-Length: 575
 Host: api.example.com
 
 {
   "eventType" : "subscription.status_changed",
   "eventVersion" : "1.0",
-  "occurredAt" : "2026-08-11T03:00:00",
-  "orderId" : "order-1",
-  "sku" : "sku-subscription",
+  "occurredAt" : "2026-05-06T00:00:00",
+  "orderId" : "13c9a1ff-6f0e-4a2b-9f10-5c7a1e2d3b4c",
+  "sku" : "premium.monthly",
   "changeReason" : "RENEWED",
   "subscription" : {
     "previous" : {
       "status" : "ACTIVE",
       "accessGranted" : true,
-      "expiresAt" : "2026-08-11T00:00:00",
+      "expiresAt" : "2026-05-06T00:00:00",
       "autoRenew" : true
     },
     "current" : {
       "status" : "ACTIVE",
       "accessGranted" : true,
-      "expiresAt" : "2026-09-10T00:00:00",
+      "expiresAt" : "2026-06-06T00:00:00",
       "autoRenew" : true
     }
   }
@@ -2119,7 +1561,28 @@ Host: api.example.com
 </div>
 </div>
 <div class="sect3">
-<h4 id="_토스_웹훅_서버_전용_프론트_무관_request_fields"><a class="link" href="#_토스_웹훅_서버_전용_프론트_무관_request_fields">Request fields</a></h4>
+<h4 id="_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_request_headers"><a class="link" href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_request_headers">Request headers</a></h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Name</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Authorization</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">&lt;code&gt;Basic {콘솔에 등록한 Basic Auth 헤더 값}&lt;/code&gt;. 플랫폼이 주는 유일한 진위 검증 수단이다 — 서명·HMAC 은 없다. 스킴 불일치·값 불일치·누락은 모두 401</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="sect3">
+<h4 id="_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_request_fields"><a class="link" href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_request_fields">Request fields</a></h4>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
 <col style="width: 33.3333%;">
@@ -2137,37 +1600,37 @@ Host: api.example.com
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>eventType</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">subscription.status_changed 고정</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">&lt;code&gt;subscription.status_changed&lt;/code&gt; 또는 &lt;code&gt;callback.registration_verification&lt;/code&gt; 2종</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>eventVersion</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">1.0 고정</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">고정 &lt;code&gt;1.0&lt;/code&gt;</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>occurredAt</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">발생 시각 — timezone 없는 ISO-8601, KST 로 해석한다(✅-7). 반영분보다 과거면 무시</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">발생 시각(timezone 없는 ISO-8601). &lt;b&gt;순서 판단의 유일한 근거&lt;/b&gt; — 이미 반영한 것보다 과거면 무시된다. 비어 올 수 있다</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>orderId</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">최초 구독 주문 ID — 사용자와 연결하는 유일한 고리. 모르는 값이면 무시(구독을 새로 만들지 않는다)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">최초 구독 주문 식별자 — &lt;b&gt;구독을 찾는 유일한 키&lt;/b&gt;. 모르는 주문이면 무시한다(웹훅으로 구독을 만들지 않는다)</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>sku</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">상품 SKU</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">상품 코드</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>changeReason</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">변경 사유 12종 — 분기하지 않고 로그만 남긴다. 판정은 current 세 값</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">변경 사유 12종. &lt;b&gt;분기하지 않는다&lt;/b&gt; — 로그용</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.previous</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Object</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">변경 전 스냅샷 — CREATED 등에서 생략. 우리 상태와 불일치하면 유실 감지</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">변경 전 스냅샷. &lt;b&gt;생략될 수 있다&lt;/b&gt;(CREATED 등). 우리 상태와 다르면 웹훅 유실로 기록한다</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.previous.status</code></p></td>
@@ -2177,48 +1640,48 @@ Host: api.example.com
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.previous.accessGranted</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">접근 부여 여부 — 산식이 문서에 없어 쓰지 않는다</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">&lt;b&gt;쓰지 않는다&lt;/b&gt; — 산식이 공개돼 있지 않다</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.previous.expiresAt</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">변경 전 만료</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">변경 전 만료 시각</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.previous.autoRenew</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">변경 전 자동 갱신</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">변경 전 자동 갱신 여부</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.current</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Object</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">변경 후 스냅샷 — 반영의 유일한 근거</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">변경 후 스냅샷 — &lt;b&gt;반영의 유일한 근거&lt;/b&gt;</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.current.status</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">구독 상태 6종</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">ACTIVE · IN_GRACE_PERIOD · ON_HOLD · PAUSED · EXPIRED · REVOKED 6종</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.current.accessGranted</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">쓰지 않는다</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">&lt;b&gt;쓰지 않는다&lt;/b&gt; — 개폐는 서버가 판정한다</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.current.expiresAt</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">변경 후 만료(null 가능 — 기존 값 유지)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">만료 시각. &lt;b&gt;null 일 수 있다&lt;/b&gt; — 비면 기존 값을 유지한다</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscription.current.autoRenew</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">변경 후 자동 갱신</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">자동 갱신 예정 여부. 비면 기존 값을 유지한다</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <div class="sect3">
-<h4 id="_토스_웹훅_서버_전용_프론트_무관_http_response"><a class="link" href="#_토스_웹훅_서버_전용_프론트_무관_http_response">HTTP response</a></h4>
+<h4 id="_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_response"><a class="link" href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 204 No Content
@@ -2234,8 +1697,60 @@ X-Frame-Options: DENY</code></pre>
 </div>
 </div>
 </div>
+<div class="ulist">
+<ul>
+<li>
+<p>반영 근거는 <strong>변경 후 스냅샷의 <code>status</code>·<code>expiresAt</code>·<code>autoRenew</code> 세 값</strong>이다.
+<code>changeReason</code> 12종으로 분기하지 않고, <code>accessGranted</code> 는 산식이 공개돼 있지 않아 쓰지 않는다.</p>
+</li>
+<li>
+<p>순서 판단의 근거는 <code>occurredAt</code> 하나다(이벤트 식별자가 없다). <strong>이미 반영한 것보다 과거·같은 시각의
+웹훅은 무시</strong>되며 그래도 204 다 — 오류가 아니라 정상 무동작이다.</p>
+</li>
+<li>
+<p><code>expiresAt</code>·<code>autoRenew</code>·<code>occurredAt</code> 이 비어 오면 <strong>서버가 아는 값을 유지</strong>한다.</p>
+</li>
+</ul>
+</div>
 <div class="sect3">
-<h4 id="_토스_웹훅_서버_전용_프론트_무관_http_response"><a class="link" href="#_토스_웹훅_서버_전용_프론트_무관_http_response">HTTP response</a></h4>
+<h4 id="_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_request"><a class="link" href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_request">HTTP request</a></h4>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/webhooks/toss/subscription HTTP/1.1
+Content-Type: application/json;charset=UTF-8
+Authorization: Basic eXRjcmVhdG9yOnRlc3Qtd2ViaG9vay1zZWNyZXQ=
+Content-Length: 85
+Host: api.example.com
+
+{
+  "eventType" : "callback.registration_verification",
+  "eventVersion" : "1.0"
+}</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_response"><a class="link" href="#_post_apiv1webhookstosssubscription_웹훅_수신_토스_서버_http_response">HTTP response</a></h4>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 204 No Content
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 0
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: DENY</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_실패_처리_웹훅"><a class="link" href="#_실패_처리_웹훅">실패 처리 (웹훅)</a></h3>
+<div class="sect3">
+<h4 id="_실패_처리_웹훅_http_response"><a class="link" href="#_실패_처리_웹훅_http_response">HTTP response</a></h4>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 401 Unauthorized
@@ -2258,6 +1773,265 @@ Content-Length: 89
 </div>
 </div>
 </div>
+<div class="sect3">
+<h4 id="_실패_처리_웹훅_http_response"><a class="link" href="#_실패_처리_웹훅_http_response">HTTP response</a></h4>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 401 Unauthorized
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Content-Type: application/json
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 0
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: DENY
+Content-Length: 89
+
+{
+  "code" : "AUTH_002",
+  "message" : "유효하지 않은 인증 정보입니다."
+}</code></pre>
+</div>
+</div>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">응답</th>
+<th class="tableblock halign-left valign-top">뜻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">204</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">수신 성공. <strong>반영에 실패해도 204 다</strong> — 재전송 정책이 없어 실패를 알려도 다시 오지 않는다</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">401 <code>AUTH_002</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">공유 시크릿 불일치 <strong>또는 헤더 누락</strong>. 반영하지 않는다</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="sect2">
+<h3 id="_post_apiv1subscriptionsrecheck_재확인_프론트_서버"><a class="link" href="#_post_apiv1subscriptionsrecheck_재확인_프론트_서버"><code>POST /api/v1/subscriptions/recheck</code> — 재확인 (프론트 → 서버)</a></h3>
+<div class="paragraph">
+<p>구독 상태를 서버가 모르게 된 구간(<strong>상태 미확인</strong>)을, 클라이언트가 SDK <code>getSubscriptionInfo</code> 로
+읽은 값으로 <strong>임시 보정</strong>한다. 인증 필요.</p>
+</div>
+<div class="sect3">
+<h4 id="_post_apiv1subscriptionsrecheck_재확인_프론트_서버_http_request"><a class="link" href="#_post_apiv1subscriptionsrecheck_재확인_프론트_서버_http_request">HTTP request</a></h4>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/subscriptions/recheck HTTP/1.1
+Content-Type: application/json;charset=UTF-8
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcwNDg3MjUsImV4cCI6MTc4NzA1MDUyNX0.59Jxx770_rP63cn3t0DWo6OAs6XuBqetHK1ECDB1Xao
+Content-Length: 120
+Host: api.example.com
+
+{
+  "orderId" : "sub-order-1",
+  "status" : "ACTIVE",
+  "expiresAt" : "2026-09-06T00:00:00",
+  "autoRenew" : true
+}</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="_post_apiv1subscriptionsrecheck_재확인_프론트_서버_request_headers"><a class="link" href="#_post_apiv1subscriptionsrecheck_재확인_프론트_서버_request_headers">Request headers</a></h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Name</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Authorization</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Bearer access 토큰 — &lt;b&gt;이 토큰의 사용자 구독만&lt;/b&gt; 보정된다. 본문으로 사용자를 지목할 수 없다</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="sect3">
+<h4 id="_post_apiv1subscriptionsrecheck_재확인_프론트_서버_request_fields"><a class="link" href="#_post_apiv1subscriptionsrecheck_재확인_프론트_서버_request_fields">Request fields</a></h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 33.3333%;">
+<col style="width: 33.3334%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Path</th>
+<th class="tableblock halign-left valign-top">Type</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>orderId</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">보정할 구독의 주문 식별자. SDK &lt;code&gt;getSubscriptionInfo&lt;/code&gt; 를 부를 때 &lt;b&gt;넘긴 그 값&lt;/b&gt;이다 — 응답에는 없으므로 주문 생성 시점에 받은 값을 보관해 쓴다. &lt;b&gt;남의 주문을 보내도 오류가 아니라 무동작(204)&lt;/b&gt; 이다</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>status</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">SDK &lt;code&gt;getSubscriptionInfo&lt;/code&gt; 가 준 구독 상태 6종. 모르는 값은 400 COMMON_001</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>expiresAt</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">만료 예정(timezone 없는 ISO-8601 — 웹훅과 같은 표기). &lt;b&gt;null 허용&lt;/b&gt; — 비면 서버가 아는 값을 유지한다</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>autoRenew</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Boolean</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">자동 갱신 예정 여부. 필수</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="sect3">
+<h4 id="_post_apiv1subscriptionsrecheck_재확인_프론트_서버_http_response"><a class="link" href="#_post_apiv1subscriptionsrecheck_재확인_프론트_서버_http_response">HTTP response</a></h4>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 204 No Content
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 0
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: DENY</code></pre>
+</div>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>정본이 아니다.</strong> 웹훅이 정본이고 이 값은 미확인을 푸는 임시 조치다 — 그래서 서버는 이 호출로
+웹훅 순서 판단의 기준값을 갱신하지 않는다(갱신하면 뒤늦게 온 웹훅이 버려진다).</p>
+</li>
+<li>
+<p><strong>미확인이 아니면 아무것도 하지 않는다.</strong> 모르는 주문이어도 마찬가지이며 <strong>오류가 아니라 204</strong> 다 —
+몇 번을 불러도 안전하다.</p>
+</li>
+<li>
+<p><strong>대상은 <code>orderId</code> 로 지목하고 소유자는 토큰이 정한다.</strong> <code>getSubscriptionInfo</code> 는 <code>orderId</code> 를 인자로
+받으므로 클라이언트가 이미 알고 있다(응답에는 없다 — 주문 생성 시점 값을 보관해 쓴다).
+<strong>남의 주문을 보내도 오류가 아니라 무동작 204</strong> 다 — 갈라 답하면 주문 존재 여부가 새어 나간다.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_실패_처리_재확인"><a class="link" href="#_실패_처리_재확인">실패 처리 (재확인)</a></h3>
+<div class="sect3">
+<h4 id="_실패_처리_재확인_http_response"><a class="link" href="#_실패_처리_재확인_http_response">HTTP response</a></h4>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 400 Bad Request
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Content-Type: application/json
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 0
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: DENY
+Content-Length: 87
+
+{
+  "code" : "COMMON_001",
+  "message" : "유효하지 않은 입력값입니다."
+}</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="_실패_처리_재확인_http_response"><a class="link" href="#_실패_처리_재확인_http_response">HTTP response</a></h4>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">HTTP/1.1 400 Bad Request
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Content-Type: application/json
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 0
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: DENY
+Content-Length: 65
+
+{
+  "code" : "COMMON_001",
+  "message" : "must not be blank"
+}</code></pre>
+</div>
+</div>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">응답</th>
+<th class="tableblock halign-left valign-top">프론트 행동</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">204</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">보정됐거나, 보정할 것이 없었다. 최신 이용권 상태는 이용권 조회로 다시 읽는다</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">400 <code>COMMON_001</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">상태 값이 6종에 없거나 필수 필드 누락. 재시도해도 같다 — SDK 응답을 확인한다</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">401</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">토큰 문제. 인증 절 참조</p></td>
+</tr>
+</tbody>
+</table>
+<div class="admonitionblock caution">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-caution" title="Caution"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p><strong>응답 본문이 없다(204).</strong> 보정 후의 이용권 상태를 내려주려면 횟수권과 합성하는 읽기 모델이
+필요한데 아직 없다. 읽기 모델이 생기면 이 응답에 반환형이 붙는다 —
+<strong>프론트 계약으로 확정되기 전이다</strong>(<code>backend/workspace/subscription/blockers.md</code> B1).</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
 </div>
 </div>
 </div>
@@ -2265,7 +2039,7 @@ Content-Length: 89
 <div id="footer">
 <div id="footer-text">
 Version 0.0.1-SNAPSHOT<br>
-Last updated 2026-08-12 22:24:17 +0900
+Last updated 2026-08-18 19:36:43 +0900
 </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.18.3/highlight.min.js"></script>
