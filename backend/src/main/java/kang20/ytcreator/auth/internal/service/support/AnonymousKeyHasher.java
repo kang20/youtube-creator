@@ -5,7 +5,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import kang20.ytcreator.shared.support.Support;
-import org.springframework.stereotype.Component;
 
 /**
  * 익명키 → 저장·조회용 해시. {@code SHA-256} 소문자 hex 64자. 근거: auth-design.md §3-2.
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Component;
  *
  * <p>⚠️ 예외 메시지에 원문을 넣지 마라(U6).
  */
-@Component
 @Support
 public class AnonymousKeyHasher {
 

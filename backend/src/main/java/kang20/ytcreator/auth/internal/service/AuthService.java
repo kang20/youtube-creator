@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import kang20.ytcreator.auth.AuthPort;
+import kang20.ytcreator.auth.Role;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.auth.dto.LoginResult;
 import kang20.ytcreator.auth.dto.TokenPair;
@@ -68,7 +69,7 @@ public class AuthService implements AuthPort {
 	public LoginResult login(String anonymousKey) {
 		Registered registered = register(anonymousKey);
 
-		String accessToken = jwtSupport.issue(registered.userId());
+		String accessToken = jwtSupport.issue(registered.userId(), registered.role());
 		String refreshToken = refreshTokenWriter.issue(registered.userId(), LocalDateTime.now(clock));
 
 		return new LoginResult(registered.newUser(), registered.registeredAt(), registered.userId(),
@@ -103,8 +104,14 @@ public class AuthService implements AuthPort {
 			throw new BusinessException(ErrorCode.AUTH_005);
 		}
 
+		// 권한은 여기서만 DB 에서 다시 읽는다 — 갱신은 원래 DB 를 타는 경로라 U8(요청당 무조회)과
+		// 충돌하지 않는다. 승격·강등이 늦어도 30분 뒤 갱신 시점에는 반드시 반영된다는 뜻이기도 하다.
+		Role role = userRepository.findById(current.getUserId())
+			.map(User::getRole)
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_005));
+
 		return new TokenPair(
-			jwtSupport.issue(current.getUserId()),
+			jwtSupport.issue(current.getUserId(), role),
 			refreshTokenWriter.issue(current.getUserId(), now));
 	}
 
@@ -117,22 +124,29 @@ public class AuthService implements AuthPort {
 
 		Optional<User> existing = userRepository.findByAnonymousKeyHash(anonymousKeyHash);
 		if (existing.isPresent()) {
-			return new Registered(false, existing.get().getCreatedAt(), existing.get().getId());
+			return Registered.existing(existing.get());
 		}
 
 		try {
 			// saveAndFlush 라 채번이 보장된 id 에서 꺼낸다 — 추가 쿼리 없음(payment-design.md §7)
 			User created = userWriter.insert(anonymousKeyHash);
 
-			return new Registered(true, created.getCreatedAt(), created.getId());
+			return new Registered(true, created.getCreatedAt(), created.getId(), created.getRole());
 		} catch (DataIntegrityViolationException e) {
 			User winner = userRepository.findByAnonymousKeyHash(anonymousKeyHash).orElseThrow();
 
-			return new Registered(false, winner.getCreatedAt(), winner.getId());
+			return Registered.existing(winner);
 		}
 	}
 
-	/** 등록 단계의 내부 운반체 — v3 공개 dto {@code Registration} 의 후신. 밖에는 {@link LoginResult} 만 나간다. */
-	private record Registered(boolean newUser, LocalDateTime registeredAt, UserId userId) {
+	/**
+	 * 등록 단계의 내부 운반체 — v3 공개 dto {@code Registration} 의 후신. 밖에는 {@link LoginResult} 만 나간다.
+	 * {@code role} 은 access 토큰 클레임으로만 쓰인다 — HTTP 응답에 싣지 않는다.
+	 */
+	private record Registered(boolean newUser, LocalDateTime registeredAt, UserId userId, Role role) {
+
+		static Registered existing(User user) {
+			return new Registered(false, user.getCreatedAt(), user.getId(), user.getRole());
+		}
 	}
 }

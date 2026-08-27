@@ -32,7 +32,13 @@ public enum ErrorCode {
 	PAY_005(HttpStatus.CONFLICT, "다른 사용자에게 귀속된 주문입니다."),
 	// BAD_GATEWAY 도 GlobalExceptionHandler.handleBusiness 가 getStatus() 로 자동 처리한다 — 핸들러 신설 불요(§9)
 	PAY_006(HttpStatus.BAD_GATEWAY, "결제 정보를 확인하지 못했습니다."),
-	PAY_007(HttpStatus.FORBIDDEN, "구독 상태 확인이 필요합니다.");
+	PAY_007(HttpStatus.FORBIDDEN, "구독 상태 확인이 필요합니다."),
+
+	// ── 자막 (subtitle-v1.md 오류 코드) ────────────────────
+	// ❗ 없는 작업과 남의 작업은 같은 코드다 — 갈라 답하면 "그 작업이 있다"는 사실이 새어 나간다.
+	SUBTITLE_001(HttpStatus.NOT_FOUND, "작업을 찾을 수 없습니다."),
+	SUBTITLE_002(HttpStatus.CONFLICT, "지금 상태에서는 처리할 수 없는 요청입니다."),
+	SUBTITLE_003(HttpStatus.BAD_REQUEST, "원본이 받을 수 있는 한계를 넘었습니다.");
 
 	private final HttpStatus status;
 	private final String message;

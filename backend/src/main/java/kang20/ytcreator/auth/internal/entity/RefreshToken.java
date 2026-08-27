@@ -1,5 +1,7 @@
 package kang20.ytcreator.auth.internal.entity;
 
+import static java.util.Objects.requireNonNull;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -57,9 +59,9 @@ public class RefreshToken extends BaseTimeEntity {
 	}
 
 	public RefreshToken(UserId userId, String tokenHash, LocalDateTime expiresAt) {
-		this.userId = userId;
-		this.tokenHash = tokenHash;
-		this.expiresAt = expiresAt;
+		this.userId = requireNonNull(userId);
+		this.tokenHash = requireNonNull(tokenHash);
+		this.expiresAt = requireNonNull(expiresAt);
 	}
 
 	public Long getId() {

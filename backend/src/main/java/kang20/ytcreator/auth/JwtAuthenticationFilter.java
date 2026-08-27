@@ -7,6 +7,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import kang20.ytcreator.auth.internal.UserPrincipal;
 import kang20.ytcreator.auth.internal.service.support.JwtSupport;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -68,8 +69,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private void authenticate(HttpServletRequest request, String accessToken) {
 		try {
+			UserPrincipal principal = jwtSupport.parse(accessToken);
 			SecurityContextHolder.getContext()
-				.setAuthentication(new UserAuthentication(jwtSupport.parse(accessToken)));
+				.setAuthentication(new UserAuthentication(principal.userId(), principal.role()));
 		} catch (ExpiredJwtException e) {
 			request.setAttribute(DENIAL_ATTRIBUTE, Denial.EXPIRED);
 		} catch (JwtException | IllegalArgumentException e) {

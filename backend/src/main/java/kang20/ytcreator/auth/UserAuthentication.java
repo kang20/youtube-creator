@@ -19,17 +19,28 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
  */
 public class UserAuthentication extends AbstractAuthenticationToken {
 
-	public static final String ROLE = "ROLE_USER";
-
-	private static final Collection<GrantedAuthority> AUTHORITIES =
-		List.of(new SimpleGrantedAuthority(ROLE));
-
 	private final UserId userId;
+	private final Role role;
 
+	/** 권한 생략은 {@link Role#USER} — 일반 사용자 경로가 대부분이다. */
 	public UserAuthentication(UserId userId) {
-		super(AUTHORITIES);
+		this(userId, Role.USER);
+	}
+
+	public UserAuthentication(UserId userId, Role role) {
+		super(authoritiesOf(role));
 		this.userId = userId;
+		this.role = role;
 		setAuthenticated(true);
+	}
+
+	/**
+	 * authority 는 <b>정확히 하나</b>다 — ADMIN 이 ROLE_USER 를 겸하지 않는다.
+	 * 계층(ADMIN ⊃ USER)이 필요하면 {@code RoleHierarchy} 빈으로 명시하는 것이 맞고,
+	 * 여기서 조용히 두 개를 넣으면 "일반 사용자만" 같은 규칙을 표현할 수 없게 된다.
+	 */
+	private static Collection<GrantedAuthority> authoritiesOf(Role role) {
+		return List.of(new SimpleGrantedAuthority(role.authority()));
 	}
 
 	@Override
@@ -44,5 +55,9 @@ public class UserAuthentication extends AbstractAuthenticationToken {
 
 	public UserId getUserId() {
 		return userId;
+	}
+
+	public Role getRole() {
+		return role;
 	}
 }

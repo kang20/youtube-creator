@@ -11,7 +11,6 @@ import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.auth.internal.entity.RefreshToken;
 import kang20.ytcreator.auth.internal.handler.outbound.repository.RefreshTokenRepository;
 import kang20.ytcreator.shared.support.Support;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -24,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 돌려주고, DB 에는 SHA-256 hex 64자만 남긴다. 해시는 조회 키라 솔트 없이 결정적이다
  * ({@code AnonymousKeyHasher} 와 같은 논리 — support 는 support 를 못 부르므로 계산을 여기 둔다).
  */
-@Component
 @Support
 public class RefreshTokenWriter {
 
