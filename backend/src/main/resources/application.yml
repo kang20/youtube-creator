@@ -14,6 +14,18 @@ spring:
 # 테스트는 ddl-auto:create-drop 으로 자동 생성되지만, 운영은 validate 이므로
 # 첫 배포 전에 EVENT_PUBLICATION 테이블을 수동 DDL 로 만들어야 한다 → Phase 4 (db-migrate.yml)
 
+ytcreator:
+  subscription:
+    webhook:
+      # 토스 웹훅 진위 검증용 값. 플랫폼이 주는 유일한 수단이 Basic Auth 다(payment.md 참고자료 ④-1).
+      # 🔴 콘솔 "결제 알림 URL 등록 > Basic Auth 헤더" 에 넣은 값과 **똑같아야** 한다 —
+      #    토스가 Authorization: Basic {이 값} 으로 실어 보낸다. 여기 스킴("Basic ")은 넣지 않는다.
+      # ⚠️ Basic 규격대로 base64(id:pw) 로 만든다. 서버는 문자열 대조만 하므로 아무 값이나 동작하지만,
+      #    규격을 벗어나면 Basic 헤더를 디코딩하는 도구(REST Docs curl 스니펫 등)가 깨진다.
+      # 🔴 기본값을 코드에도 여기에도 박지 않는다 — 비어 있으면 모든 웹훅이 거부된다(fail-closed).
+      #    열려 있는 채 뜨는 것보다 낫다. 운영은 TOSS_WEBHOOK_SECRET 환경변수로 주입한다.
+      secret: ${TOSS_WEBHOOK_SECRET:}
+
 # 로그 상관관계 — MDC requestId 를 레벨 옆에 노출 (키 계약: docs/ops/logging.md §3.3)
 logging:
   pattern:
