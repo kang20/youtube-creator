@@ -19,7 +19,8 @@ description: "기획자 페르소나. 사용자가 아이디어·기능 제안�
 |---|---|
 | 제품 방향·MVP 경계 | `docs/prd.md` |
 | 클라 기획 | `docs/client/prd-client.md` |
-| 기존 기능 요구 정본 | `backend/docs/domain/*.md` (유스케이스 산출물) |
+| 기존 기능 요구 정본 | `backend/docs/new-domain/*/*-v*.md` (도메인 정의서 — 요구·용어·모델이 한 파일) |
+| 〃 레거시 | `backend/docs/domain/*.md` (구 양식 — 그 도메인은 코드가 정본) |
 | 확정된 서버 계약 | `docs/server/api-spec.md` |
 | 과거 의사결정·기각 이유 | `backend/docs/adr/*` |
 | 인증 모델·규칙 | `CLAUDE.md` |

@@ -42,7 +42,7 @@ Modulith `Documenter` 는 "모듈이 서로 어떻게 얽히는가"까지만 자
 
 ## 입력
 
-- `{module}` — Modulith 모듈명 (`auth` · `payment` · `shared` · `config` · `bootstrap`)
+- `{module}` — Modulith 모듈명 (`auth` · `payment` · `credit` · `subscription` · `bootstrap` · `shared` · `config`)
   - 사용자가 한글 표시명(`인증` · `결제·이용권`)으로 부를 수 있다 → `package-info.java` 의
     `displayName` 으로 대조해 패키지명을 찾는다
   - 모듈명이 모호하거나 없는 모듈이면 **묻는다**. 임의로 고르지 않는다
@@ -55,10 +55,14 @@ Modulith `Documenter` 는 "모듈이 서로 어떻게 얽히는가"까지만 자
 |---|---|
 | 파일별 양식·Mermaid 작성 규약 | [references/template.md](references/template.md) |
 | 모듈 경계·의존·이벤트 규칙 | [architecture.md](../../../backend/docs/rule/architecture.md) |
-| 이 모듈의 요구·정책 | `backend/docs/domain/{module}.md` |
-| 이 모듈의 설계 결정 | `backend/docs/domain/{module}-design.md` |
+| 이 모듈의 요구·용어·도메인 모델 | `backend/docs/new-domain/{module}/{module}-v{n}.md` (없으면 레거시 `backend/docs/domain/`) |
 | 왜 그렇게 정했나 | `backend/docs/adr/` |
 | 정본 — 실제 코드 | `backend/src/main/java/kang20/ytcreator/{module}/` |
+
+> 요구·용어·모델은 **한 파일**에 있다. 요구서와 설계서를 따로 찾지 않는다.
+> `backend/docs/domain/` 의 5개(`auth.md` · `auth-design.md` · `payment.md` · `payment-design.md` ·
+> `subtitle.md`)는 **구 양식 레거시**이고 그 도메인들은 코드가 정본이다 —
+> 참고로만 읽고 되돌려 고치지 않는다.
 
 > **정본은 코드다.** 설계서와 코드가 다르면 **코드를 그리고**, 그 불일치를 5단계에서 보고한다.
 > 문서를 믿고 코드에 없는 것을 그리지 않는다.
@@ -90,7 +94,10 @@ Modulith `Documenter` 는 "모듈이 서로 어떻게 얽히는가"까지만 자
 2. `{module}/internal/entity/**` — 필드 · 타입 · 제약(`nullable` · `unique` · `length`) · enum · 생성자 · 상태 판정 메서드
 3. `{module}/internal/**/repository/**` — 어떤 엔티티에 리포지토리가 있는가
    (**리포지토리가 있는 엔티티 = 애그리거트 루트 후보**. 확정은 2단계에서 사용자와)
-4. `{module}/*Port.java` 등 모듈이 **밖에 노출한 타입** — 다른 모듈이 이 모듈을 어떻게 쓰는가
+4. `{module}/*.java`(루트 직속) — 모듈이 **밖에 노출한 타입**. 다른 모듈이 이 모듈을 어떻게 쓰는가
+   - ⚠️ 포트는 두 자리에 산다: 루트 = 공개(밖에서 부른다), `{module}/internal/port/` = 비공개
+     (자기 컨트롤러·리스너만 부른다). **비공개 포트를 모듈 간 호출로 읽지 마라** — 그 경계는
+     이벤트로 이어져 있다(architecture.md "공개 표면")
 5. `{module}/internal/service/**` — 트랜잭션 경계 · 한 메서드가 함께 저장하는 엔티티들
    (**같은 트랜잭션에서 함께 바뀌는 엔티티 = 같은 애그리거트 후보**)
 6. 이벤트 발행/구독 — `@EventListener` · `ApplicationEventPublisher`
@@ -285,16 +292,23 @@ classDiagram
    → /domain-model {module}   (master.md 의 해당 구역만 갱신)
 ```
 
-`/implement` 로 도메인을 구현한 직후, `/docs-sync` 마감 전이 가장 자연스러운 자리다.
+`/implement` 로 도메인을 구현하고 `/docs-sync` 로 마감한 뒤가 제자리다(`/pm` 기준 8단계).
+그림은 **구현된 코드**를 그리는 것이라 코드가 확정되기 전에 그리면 두 번 그린다.
 
 ## 파이프라인 위치
 
 ```
-/usecase {name}          요구      docs/domain/{name}.md
-/develop-design {name}   설계      docs/domain/{name}-design.md
-/implement {name}        구현      src/main · src/test
-   ▼
-/domain-model {module}   모델 그림  docs/model/master.md   [이 스킬]
-   ▼
-/docs-sync               마감
+/usecase {name}              요구      ┐
+/usecase {name} {정보}        참고자료   ├→ backend/docs/new-domain/{name}/{name}-v{n}.md
+/usecase 용어 {name}          용어 사전  ┘        (하나의 도메인 정의서)
+    │  (요구 🔶 전부 확정 후)
+    ▼
+/develop-design {name}       도메인 모델 → 같은 파일에 '## 도메인 모델' 추가
+    │  (모델 🔶 전부 확정 후)
+    ▼
+/implement {name}            developer ⇄ tester (5라운드) → code-reviewer (3회)
+    ▼
+/docs-sync                   테스트 리포트 + REST Docs + main 문서 push
+    ▼
+/domain-model {module}       모델 그림 → backend/docs/model/master.md   [이 스킬]
 ```

@@ -207,7 +207,10 @@ DDL(`backend/deploy/sql/`)이 정본이다. `createdAt`·`updatedAt` 같은 `Bas
 # {표시명}({module}) 모델 노트
 
 > **근거 커밋** `{7자리}` · **갱신** {YYYY-MM-DD} · 그림 [master.md](master.md)
-> 요구 [{module}.md](../domain/{module}.md) · 설계 [{module}-design.md](../domain/{module}-design.md)
+> 도메인 정의서 [{module}-v{n}.md](../new-domain/{module}/{module}-v{n}.md) — 요구·용어·모델이 한 파일에 있다
+> (레거시 도메인만 `../domain/` 을 가리킨다. 거기 있는 문서는 `auth.md` · `auth-design.md` ·
+>  `payment.md` · `payment-design.md` · `subtitle.md` **다섯 개가 전부다** —
+>  `subtitle` 은 설계서가 없으므로 `subtitle-design.md` 를 링크하지 않는다)
 >
 > ⚠️ 수기 문서다. 엔티티·경계가 바뀌면 `/domain-model {module}` 로 갱신한다.
 

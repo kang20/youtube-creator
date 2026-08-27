@@ -46,7 +46,9 @@ cd backend && ./gradlew clean test --console=plain
 
 - 컨트롤러 테스트 → `build/generated-snippets/` 스니펫
 - Modulith 구조 검증 → 모듈 경계 규칙 검증
-- JaCoCo → 커버리지(`finalizedBy`), 게이트 `jacocoTestCoverageVerification`(라인 90%)
+- JaCoCo → 커버리지(`finalizedBy`), 게이트 `jacocoTestCoverageVerification`
+  - **게이트 수치는 여기 적지 않는다.** 정본은 [testing.md](../../../backend/docs/rule/testing.md) 이고,
+    수치를 복사하면 사본이 먼저 낡아 실제 빌드와 어긋난다
 
 **테스트 실패 → 여기서 중단.** 깨진 상태로 문서를 내보내지 않는다.
 
@@ -57,8 +59,10 @@ git diff --name-only origin/backend...backend        # 이번에 푸시할 커�
 git diff --name-only origin/backend...backend -- '*.java' | grep 'src/main'   # 커버리지 대상
 ```
 
-**커버리지 분석 (변경 파일 100% 기준)** — 전역 게이트는 LINE 95%/BRANCH 90%지만,
+**커버리지 분석 (변경 파일 100% 기준)** — 전역 게이트는
+[testing.md](../../../backend/docs/rule/testing.md) 가 정본이고, 그와 별개로
 **이번 피처로 신규 생성·리팩터링한 `src/main` 파일은 라인 100%** 를 확인한다.
+전역 게이트는 실패선이고 변경 파일 100% 가 목표선이다 — 둘을 같은 값으로 읽지 않는다.
 jacoco XML 을 파싱해 변경 파일만 뽑는 게 정확하다:
 
 ```bash
@@ -66,7 +70,15 @@ jacoco XML 을 파싱해 변경 파일만 뽑는 게 정확하다:
 ```
 
 - 미달 라인이 있으면 → (a) 테스트 추가, (b) 죽은 코드 제거, (c) 도달 불가 방어선이면 근거 명시.
-  **그냥 두지 않는다** — 설계서(`{name}-design.md`) §10 의 커버리지 준수 항목과 대조.
+  **그냥 두지 않는다.**
+- 대조 상대는 둘이다 — **도메인 정의서**(`backend/docs/new-domain/{name}/{name}-v{n}.md`) 와
+  **요구 체크리스트**(`backend/workspace/{name}/v{n}/requirements.md`).
+  - 정의서의 요구 섹션·`#### 규칙` 불릿이 체크리스트에 전부 옮겨졌는지 본다. 빠진 요구는 커버리지 숫자에 나타나지 않는다.
+    **요구 섹션은 상태 헤더 다음의 첫 번째 `## ` 섹션이다. 제목 문자열로 찾지 않는다.**
+  - 체크리스트의 `상태` 열에 미충족이 남아 있으면 커버리지가 100% 라도 마감이 아니다
+  - `N/A` 로 표시된 항목은 **사유가 적혀 있는지**만 확인한다. 사유 없는 N/A 는 커버리지 판정을 무의미하게 만든다
+  - `backend/workspace/` 는 `.gitignore` 대상이라 없을 수 있다. 없으면 "체크리스트 없음"을 리포트에 명시한다
+  - `{n}` 은 **정의서 버전**이다. 정의서가 `{name}-v2.md` 면 체크리스트도 `v2/requirements.md` 를 본다
 
 ### Step 2: 리포트 작성 (사용자에게 보고)
 
@@ -79,12 +91,17 @@ jacoco XML 을 파싱해 변경 파일만 뽑는 게 정확하다:
 - 이번 피처 테스트 케이스:
   - {Domain}ControllerTest — vote/cancel + 실패 스니펫(409/400/404/401)
   - {Domain}ServiceIntegrationTest — 멱등·409·집계
-  - {Domain}ConcurrencyTest — R1~R3 (동시성)
+  - {Domain}ConcurrencyTest — REQ-12·REQ-13 (동시성)
   - ...
 - REST Docs 스니펫(신규): {name}-vote, {name}-cancel, ...
-- 커버리지: 전체 라인 N% (게이트 LINE 95%/BRANCH 90% 통과)
+- 요구 커버: requirements.md {n}/{n} 충족 (N/A {m}건 — 사유 명시됨)
+- 커버리지: 전체 라인 N% · 브랜치 N% — 게이트 통과 (기준은 testing.md)
   - **이번 변경 파일: {n}/{n}줄 = 100%** ✅  (또는 미달 라인과 사유)
 ```
+
+- 테스트 이름 옆의 `REQ-{n}` 은 `requirements.md` 의 번호다. 리포트에서 이 번호를 그대로 쓰면
+  "어느 요구가 어느 테스트로 덮였는가"를 읽는 사람이 되짚을 수 있다.
+- 아키텍처 규칙을 인용할 때는 `architecture.md R1` 처럼 문서명을 앞에 붙인다.
 
 ### Step 3: REST Docs(API 명세) 빌드
 
@@ -95,7 +112,8 @@ cd backend && ./gradlew asciidoctor --console=plain   # src/docs/asciidoc → do
 ```
 
 - adoc(`src/docs/asciidoc/*.adoc`)을 이번 피처에 맞게 갱신했는지 먼저 확인
-  (신규 도메인이면 `{name}.adoc` + `index.adoc` include 한 줄).
+  (**신규 도메인이고 HTTP 컨트롤러가 있으면** `{name}.adoc` + `index.adoc` include 한 줄).
+  컨트롤러가 없는 모듈(이벤트 구독 전용 등)은 이 항목이 **N/A** 다.
 - `docs/server/api-spec.md`(프론트 계약 정본)도 이번 변경을 반영했는지 확인.
 
 ### Step 4: 빌드 산출물 backend 커밋
