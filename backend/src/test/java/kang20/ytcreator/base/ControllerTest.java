@@ -6,6 +6,7 @@ import static org.springframework.restdocs.operation.preprocess.Preprocessors.pr
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.prettyPrint;
 
 import java.time.Clock;
+import kang20.ytcreator.auth.RoleAccessDeniedHandler;
 import kang20.ytcreator.auth.TokenAuthenticationEntryPoint;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.auth.internal.service.support.JwtSupport;
@@ -34,8 +35,8 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>{@link AuthSliceConfig} 가 필요한 이유: {@code @WebMvcTest} 는 {@code Filter}·
  * {@code HandlerMethodArgumentResolver}·{@code WebMvcConfigurer} 는 스캔하지만
- * {@code JwtSupport}(@Support 내부 부품)와 {@code TokenAuthenticationEntryPoint} 는 스캔하지
- * 않는다 — {@code SecurityConfig} 조립에 필요한 빈을 슬라이스에 직접 공급한다.
+ * {@code JwtSupport}(@Support 내부 부품)·{@code TokenAuthenticationEntryPoint}·
+ * {@code RoleAccessDeniedHandler} 는 스캔하지 않는다 — {@code SecurityConfig} 조립에 필요한 빈을 슬라이스에 직접 공급한다.
  */
 @ActiveProfiles("test")
 @AutoConfigureRestDocs
@@ -80,6 +81,12 @@ public abstract class ControllerTest {
 		@Bean
 		TokenAuthenticationEntryPoint tokenAuthenticationEntryPoint(ObjectMapper objectMapper) {
 			return new TokenAuthenticationEntryPoint(objectMapper);
+		}
+
+		/** 403 본문(AUTH_003)을 만드는 부품 — 위 두 개와 같은 이유로 슬라이스가 스캔하지 않는다. */
+		@Bean
+		RoleAccessDeniedHandler roleAccessDeniedHandler(ObjectMapper objectMapper) {
+			return new RoleAccessDeniedHandler(objectMapper);
 		}
 	}
 }

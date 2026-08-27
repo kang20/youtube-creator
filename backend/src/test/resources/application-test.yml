@@ -28,3 +28,13 @@ ytcreator:
   auth:
     jwt:
       secret: test-only-hs256-secret-0123456789abcdef!
+
+  payment:
+    # 상품 코드는 코드 상수가 아니라 설정이다 — 테스트 전용 값이며 운영 sku 와 무관하다.
+    one-time:
+      sku: test.one-time
+    subscription:
+      sku: test.subscription
+    toss:
+      # 테스트에서 mTLS 를 조립하지 않는다 — 토스 호출은 목으로 막는다.
+      enabled: false

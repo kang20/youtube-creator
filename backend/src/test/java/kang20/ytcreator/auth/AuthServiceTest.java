@@ -129,7 +129,7 @@ class AuthServiceTest {
 		assertThat(login.refreshToken()).isNotBlank();
 
 		// 발급과 같은 JwtSupport 빈으로 파싱 — 서명·클레임 라운드트립이 사용자를 되돌려야 한다
-		assertThat(jwtSupport.parse(login.accessToken()))
+		assertThat(jwtSupport.parse(login.accessToken()).userId())
 			.as("auth.md §5-1 — sub 는 userId 다. 어긋나면 U8 게이트가 남의 신원을 준다")
 			.isEqualTo(login.userId());
 	}

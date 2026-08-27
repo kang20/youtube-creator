@@ -110,7 +110,7 @@ class RefreshRotationTest {
 		assertThat(rotated.accessToken()).isNotBlank();
 		assertThat(rotated.refreshToken()).isNotBlank().isNotEqualTo(login.refreshToken());
 		// 새 access 도 같은 사용자의 것이다 — 다른 사용자면 회전이 신원을 바꿔치기한 것
-		assertThat(jwtSupport.parse(rotated.accessToken())).isEqualTo(login.userId());
+		assertThat(jwtSupport.parse(rotated.accessToken()).userId()).isEqualTo(login.userId());
 
 		// 구 토큰은 폐기(revoked_at = 회전 시각 — §14-3 "SET revoked_at=?"), 새 토큰은 활성
 		RefreshToken oldRow = storedRowOf(login.refreshToken());

@@ -12,14 +12,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import kang20.ytcreator.auth.AuthPort;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.auth.dto.LoginResult;
 import kang20.ytcreator.base.ControllerTest;
-import kang20.ytcreator.payment.PaymentReaderPort;
-import kang20.ytcreator.payment.dto.EntitlementView;
 import kang20.ytcreator.shared.security.AnonymousKeyFixture;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,22 +45,18 @@ class BootstrapControllerTest extends ControllerTest {
 	@MockitoBean
 	private AuthPort authPort;
 
-	@MockitoBean
-	private PaymentReaderPort paymentReader;
-
 	/**
-	 * U7 · auth.md §5-2 v4 — 응답은 {@code {newUser, registeredAt, auth{...}, entitlement{...}}} 다.
-	 * entitlement 내부는 payment.md §5-3 이 정본이다.
+	 * U7 · auth.md §5-2 v4 — 응답은 {@code {newUser, registeredAt, auth{...}}} 다.
 	 * ⚠️ {@code userId} 는 싣지 않는다(§5-2 — 서버 내부 식별자).
+	 *
+	 * <p>⚠️ <b>{@code entitlement} 검증이 빠져 있다</b> — payment 롤백(2026-08-14)으로 제거됐다.
+	 * 재구현 시 되살려야 §5-2 확정 계약이 다시 덮인다.
 	 */
 	@Test
-	@DisplayName("부트스트랩은 등록 결과·토큰 쌍·이용권을 한 응답으로 준다 — userId 는 싣지 않는다")
+	@DisplayName("부트스트랩은 등록 결과와 토큰 쌍을 한 응답으로 준다 — userId 는 싣지 않는다")
 	void 진입_성공() throws Exception {
 		when(authPort.login(ANON_KEY))
 			.thenReturn(new LoginResult(true, REGISTERED_AT, USER, ACCESS, REFRESH));
-		OffsetDateTime expiresAt = LocalDateTime.of(2026, 9, 8, 0, 0).atOffset(ZoneOffset.ofHours(9));
-		when(paymentReader.entitlementOf(USER)).thenReturn(new EntitlementView(true, 2, false,
-			new EntitlementView.SubscriptionView("ACTIVE", expiresAt, true)));
 
 		MvcResult result = mockMvc.perform(post(BOOTSTRAP_PATH)
 				.header(BootstrapController.ANONYMOUS_KEY_HEADER, ANON_KEY))
@@ -74,12 +66,6 @@ class BootstrapControllerTest extends ControllerTest {
 			// (v4) U7 — 부트스트랩이 곧 로그인: 토큰 쌍이 동봉된다
 			.andExpect(jsonPath("$.auth.accessToken").value(ACCESS))
 			.andExpect(jsonPath("$.auth.refreshToken").value(REFRESH))
-			.andExpect(jsonPath("$.entitlement.accessible").value(true))
-			.andExpect(jsonPath("$.entitlement.credits").value(2))
-			.andExpect(jsonPath("$.entitlement.subscriptionStale").value(false))
-			.andExpect(jsonPath("$.entitlement.subscription.status").value("ACTIVE"))
-			.andExpect(jsonPath("$.entitlement.subscription.expiresAt").value("2026-09-08T00:00:00+09:00"))
-			.andExpect(jsonPath("$.entitlement.subscription.autoRenew").value(true))
 			// §5-2 — userId 는 프론트 계약이 아니다
 			.andExpect(jsonPath("$.userId").doesNotExist())
 			.andDo(document("bootstrap-entry",
@@ -95,17 +81,7 @@ class BootstrapControllerTest extends ControllerTest {
 							+ " 만료(AUTH_004)면 /auth/refresh 로 갱신"),
 					fieldWithPath("auth.refreshToken")
 						.description("갱신용 불투명 값(14일·회전). 로컬에만 보관한다."
-							+ " 재호출 = 재로그인 — 매번 새로 발급되고 기존 값은 폐기되지 않는다"),
-					fieldWithPath("entitlement.accessible")
-						.description("이용 가능 여부 — S1 배지 분기는 이 값 하나로만(payment.md §5-3)"),
-					fieldWithPath("entitlement.credits").description("남은 횟수권 — 'n회 남음' 배지"),
-					fieldWithPath("entitlement.subscriptionStale")
-						.description("true 면 결제 유도가 아니라 구독 재확인 흐름으로 간다"),
-					fieldWithPath("entitlement.subscription.status")
-						.description("구독 상태 6종 + NONE. 안내 문구용"),
-					fieldWithPath("entitlement.subscription.expiresAt").optional()
-						.description("만료 시각(+09:00). 이력 없으면 null"),
-					fieldWithPath("entitlement.subscription.autoRenew").description("자동 갱신 예정"))))
+							+ " 재호출 = 재로그인 — 매번 새로 발급되고 기존 값은 폐기되지 않는다"))))
 			.andReturn();
 
 		// U6(auth) — 익명키 원문이 응답에 실리지 않는다
@@ -165,8 +141,6 @@ class BootstrapControllerTest extends ControllerTest {
 		String atMax = AnonymousKeyFixture.atMaxLength();
 		when(authPort.login(atMax))
 			.thenReturn(new LoginResult(true, REGISTERED_AT, USER, ACCESS, REFRESH));
-		when(paymentReader.entitlementOf(USER)).thenReturn(new EntitlementView(false, 0, false,
-			EntitlementView.SubscriptionView.none()));
 
 		mockMvc.perform(post(BOOTSTRAP_PATH)
 				.header(BootstrapController.ANONYMOUS_KEY_HEADER, atMax))

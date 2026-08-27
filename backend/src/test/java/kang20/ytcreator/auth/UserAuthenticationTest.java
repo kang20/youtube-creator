@@ -30,7 +30,23 @@ class UserAuthenticationTest {
 		assertThat(authentication.isAuthenticated()).isTrue();
 		assertThat(authentication.getAuthorities())
 			.extracting(GrantedAuthority::getAuthority)
-			.containsExactly(UserAuthentication.ROLE);
+			.containsExactly(Role.USER.authority());
+	}
+
+	/**
+	 * ADMIN 은 {@code ROLE_ADMIN} <b>하나</b>다 — ROLE_USER 를 겸하지 않는다.
+	 * 겸하게 만들면 "일반 사용자만" 규칙을 표현할 수 없고, 계층이 필요하면
+	 * {@code RoleHierarchy} 로 명시하는 것이 맞다.
+	 */
+	@Test
+	@DisplayName("ADMIN 의 권한은 ROLE_ADMIN 하나다")
+	void 어드민_권한() {
+		UserAuthentication admin = new UserAuthentication(USER, Role.ADMIN);
+
+		assertThat(admin.getRole()).isEqualTo(Role.ADMIN);
+		assertThat(admin.getAuthorities())
+			.extracting(GrantedAuthority::getAuthority)
+			.containsExactly("ROLE_ADMIN");
 	}
 
 	/**

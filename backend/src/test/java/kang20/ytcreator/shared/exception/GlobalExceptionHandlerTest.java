@@ -2,17 +2,23 @@ package kang20.ytcreator.shared.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import kang20.ytcreator.shared.dto.ErrorResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.mock.http.MockHttpInputMessage;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -98,10 +104,54 @@ class GlobalExceptionHandlerTest {
 	@DisplayName("처리되지 않은 예외는 COMMON_002 로 감싼다 — 내부 메시지를 노출하지 않는다")
 	void 예상하지_못한_예외() {
 		ResponseEntity<ErrorResponse> response =
-			handler.handleUnexpected(new IllegalStateException("DB 커넥션 풀 고갈"));
+			handler.handleUnexpected(new IllegalStateException("DB 커넥션 풀 고갈"), request("GET", "/api/v1/me"));
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
 		assertThat(response.getBody().code()).isEqualTo("COMMON_002");
 		assertThat(response.getBody().message()).doesNotContain("DB 커넥션 풀");
+	}
+
+	/**
+	 * 불변식 위반(NPE)은 응답이 최종 안전망과 같으므로 <b>로그가 유일한 산출물</b>이다 —
+	 * 요청 경로와 사유가 요약 줄에 없으면 500 만 남고 어디를 고쳐야 할지 알 수 없다.
+	 */
+	@Test
+	@DisplayName("불변식 위반은 COMMON_002 를 주되 요청 경로와 사유를 ERROR 로 남긴다")
+	void 불변식_위반() {
+		ListAppender<ILoggingEvent> logs = attachAppender();
+
+		ResponseEntity<ErrorResponse> response = handler.handleInvariantViolation(
+			new NullPointerException("주문 식별자는 비어 있을 수 없다"),
+			request("POST", "/api/v1/payments/grant"));
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+		assertThat(response.getBody().code()).isEqualTo("COMMON_002");
+		assertThat(response.getBody().message())
+			.as("내부 사유는 로그에만 남기고 응답에는 싣지 않는다").doesNotContain("주문 식별자");
+
+		ILoggingEvent logged = logs.list.getFirst();
+		handlerLogger().detachAppender(logs);
+
+		assertThat(logged.getLevel()).as("사람이 조치할 버그다 — ERROR").isEqualTo(Level.ERROR);
+		assertThat(logged.getFormattedMessage())
+			.contains("POST", "/api/v1/payments/grant", "주문 식별자는 비어 있을 수 없다");
+		assertThat(logged.getThrowableProxy()).as("스택이 없으면 어느 줄인지 못 찾는다").isNotNull();
+	}
+
+	private static MockHttpServletRequest request(String method, String uri) {
+		MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
+		request.setRequestURI(uri);
+		return request;
+	}
+
+	private static ListAppender<ILoggingEvent> attachAppender() {
+		ListAppender<ILoggingEvent> logs = new ListAppender<>();
+		logs.start();
+		handlerLogger().addAppender(logs);
+		return logs;
+	}
+
+	private static Logger handlerLogger() {
+		return (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
 	}
 }

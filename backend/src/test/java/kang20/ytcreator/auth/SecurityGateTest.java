@@ -24,6 +24,11 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
@@ -55,6 +60,16 @@ class SecurityGateTest {
 
 	/** 인증이 필요한 경로. default-deny 이므로 아무 설정을 하지 않으면 401 이다(auth-design.md §7). */
 	private static final String PROTECTED_PATH = "/api/v1/gate-probe";
+
+	/** 운영자 전용 경로. 접두사 {@code /api/v1/admin} 규칙 자체를 관측한다. */
+	private static final String ADMIN_PATH = "/api/v1/admin/gate-probe";
+
+	/**
+	 * {@code hasRole("USER")} 로 막은 경로 — <b>권한 계층</b>을 관측하기 위한 테스트 전용 경로다.
+	 * 운영 설정에는 아직 이런 규칙이 없어서(전부 {@code authenticated()}) 실제 규칙을 하나 세워야
+	 * 계층이 도는지 볼 수 있다.
+	 */
+	private static final String USER_ONLY_PATH = "/api/v1/hierarchy-probe";
 
 	/** auth.md §4-2 (v2) — 공개 대상은 헬스체크 하나가 아니라 운영 엔드포인트 전체다. */
 	private static final String PUBLIC_HEALTH = "/actuator/health";
@@ -91,6 +106,28 @@ class SecurityGateTest {
 				.GET(PROTECTED_PATH, request -> ServerResponse.ok()
 					.body(String.valueOf(
 						SecurityContextHolder.getContext().getAuthentication().getPrincipal())))
+				.GET(ADMIN_PATH, request -> ServerResponse.ok().body("admin"))
+				.GET(USER_ONLY_PATH, request -> ServerResponse.ok().body("user-only"))
+				.build();
+		}
+
+		/**
+		 * {@code hasRole("USER")} 규칙을 세운 테스트 전용 체인. 운영 체인보다 먼저 평가되도록
+		 * {@code @Order(0)} 이고, {@code securityMatcher} 로 이 경로 하나만 가져간다 —
+		 * 나머지 요청은 그대로 {@code SecurityConfig} 의 체인이 처리한다.
+		 *
+		 * <p>⚠️ 이 체인에도 JWT 필터를 달아야 한다 — 체인마다 필터가 따로다.
+		 */
+		@Bean
+		@Order(0)
+		SecurityFilterChain userOnlyProbeChain(HttpSecurity http,
+				JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
+			return http
+				.securityMatcher(USER_ONLY_PATH)
+				.csrf(csrf -> csrf.disable())
+				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.authorizeHttpRequests(auth -> auth.anyRequest().hasRole("USER"))
+				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
 				.build();
 		}
 	}
@@ -267,6 +304,65 @@ class SecurityGateTest {
 	@DisplayName("열거되지 않은 경로는 기본이 인증 필요다 — 공개는 명시적 열거뿐이다")
 	void 기본값은_인증_필요다() throws Exception {
 		mockMvc.perform(get("/api/v1/anything-else"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value(ErrorCode.AUTH_001.getCode()));
+	}
+
+	// ── 권한 (일반 사용자 vs 운영자) ─────────────────────────────────────────
+
+	/**
+	 * 인증은 됐지만 권한이 없는 요청은 <b>401 이 아니라 403</b> 이다 — 프론트 행동이 다르다.
+	 * 401 로 주면 클라가 refresh·재로그인을 무한 반복한다(토큰은 멀쩡하니 영영 풀리지 않는다).
+	 */
+	@Test
+	@DisplayName("일반 사용자 토큰으로 운영자 경로를 부르면 403 이다")
+	void 어드민경로_일반_사용자는_403() throws Exception {
+		mockMvc.perform(get(ADMIN_PATH).header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value(ErrorCode.AUTH_003.getCode()))
+			.andExpect(jsonPath("$.message").value(ErrorCode.AUTH_003.getMessage()));
+	}
+
+	/** 운영자 토큰은 통과한다 — 권한 판정의 근거는 DB 가 아니라 서명된 role 클레임이다(U8). */
+	@Test
+	@DisplayName("운영자 토큰은 운영자 경로를 통과한다")
+	void 어드민경로_운영자는_200() throws Exception {
+		mockMvc.perform(get(ADMIN_PATH)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtSupport.issue(USER, Role.ADMIN)))
+			.andExpect(status().isOk())
+			.andExpect(content().string("admin"));
+	}
+
+	/**
+	 * <b>권한 계층</b> — ADMIN 은 USER 로 막은 경로도 통과한다({@code SecurityConfig.roleHierarchy}).
+	 *
+	 * <p>계층이 없으면 운영자가 일반 기능에서 403 을 맞는다. 토큰의 authority 는 {@code ROLE_ADMIN}
+	 * 하나뿐이므로, 이 테스트가 초록인 것은 계층 선언이 살아 있다는 뜻 그 자체다.
+	 */
+	@Test
+	@DisplayName("ADMIN 은 USER 로 막은 경로도 통과한다 — 권한 계층")
+	void 권한_계층_ADMIN_은_USER_를_포함한다() throws Exception {
+		mockMvc.perform(get(USER_ONLY_PATH)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtSupport.issue(USER, Role.ADMIN)))
+			.andExpect(status().isOk())
+			.andExpect(content().string("user-only"));
+	}
+
+	/** 계층은 <b>한 방향</b>이다 — USER 가 ADMIN 을 포함하지는 않는다(위 어드민 경로 403 과 짝). */
+	@Test
+	@DisplayName("USER 는 USER 경로만 통과한다 — 계층은 역방향으로 열리지 않는다")
+	void 권한_계층은_한_방향이다() throws Exception {
+		mockMvc.perform(get(USER_ONLY_PATH).header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk());
+		mockMvc.perform(get(ADMIN_PATH).header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isForbidden());
+	}
+
+	/** 토큰이 아예 없으면 권한 이전에 인증 문제다 — 403 이 아니라 401 AUTH_001. */
+	@Test
+	@DisplayName("운영자 경로도 토큰이 없으면 401 AUTH_001 이다")
+	void 어드민경로_헤더_없음() throws Exception {
+		mockMvc.perform(get(ADMIN_PATH))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value(ErrorCode.AUTH_001.getCode()));
 	}

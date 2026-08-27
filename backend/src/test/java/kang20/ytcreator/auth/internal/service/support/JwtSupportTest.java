@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Date;
+import kang20.ytcreator.auth.Role;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.base.MutableClock;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +57,54 @@ class JwtSupportTest {
 		String token = jwtSupport.issue(USER);
 
 		assertThat(token).isNotBlank();
-		assertThat(jwtSupport.parse(token)).isEqualTo(USER);
+		assertThat(jwtSupport.parse(token).userId()).isEqualTo(USER);
+	}
+
+	/** 권한도 서명된 클레임이다 — 이게 깨지면 매 요청 DB 조회 없이는 인가할 수 없다(U8). */
+	@Test
+	@DisplayName("발급한 권한이 파싱 결과로 그대로 돌아온다")
+	void 권한_라운드트립() {
+		assertThat(jwtSupport.parse(jwtSupport.issue(USER, Role.ADMIN)).role()).isEqualTo(Role.ADMIN);
+		assertThat(jwtSupport.parse(jwtSupport.issue(USER, Role.USER)).role()).isEqualTo(Role.USER);
+	}
+
+	/** 권한 생략 오버로드는 USER 다 — 실수로 부른 곳이 운영자 토큰을 뿜지 않는다. */
+	@Test
+	@DisplayName("권한을 지정하지 않고 발급하면 USER 다")
+	void 권한_기본값() {
+		assertThat(jwtSupport.parse(jwtSupport.issue(USER)).role()).isEqualTo(Role.USER);
+	}
+
+	/**
+	 * role 클레임이 없던 시절 발급된 토큰(수명 30분 동안 살아 있다)은 USER 로 흡수된다.
+	 * 반대로 없는 클레임을 ADMIN 으로 읽으면 배포 순간 전 사용자가 운영자가 된다.
+	 */
+	@Test
+	@DisplayName("role 클레임이 없는 토큰은 USER 로 읽는다 — 권한 확대 방향으로 실패하지 않는다")
+	void role_클레임이_없으면_USER_다() {
+		String legacy = Jwts.builder()
+			.subject("42")
+			.issuedAt(Date.from(clock.instant()))
+			.expiration(Date.from(clock.instant().plus(Duration.ofMinutes(5))))
+			.signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)), Jwts.SIG.HS256)
+			.compact();
+
+		assertThat(jwtSupport.parse(legacy).role()).isEqualTo(Role.USER);
+	}
+
+	/** 서명이 유효해도 모르는 role 값은 USER 다(같은 이유 — 확대 금지). */
+	@Test
+	@DisplayName("모르는 role 값은 USER 로 떨어진다")
+	void 모르는_role_은_USER_다() {
+		String alien = Jwts.builder()
+			.subject("42")
+			.claim("role", "SUPERUSER")
+			.issuedAt(Date.from(clock.instant()))
+			.expiration(Date.from(clock.instant().plus(Duration.ofMinutes(5))))
+			.signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)), Jwts.SIG.HS256)
+			.compact();
+
+		assertThat(jwtSupport.parse(alien).role()).isEqualTo(Role.USER);
 	}
 
 	/** U7 — 수명 30분: 발급 29분 뒤는 아직 유효하다(만료 테스트의 대조군). */
@@ -67,7 +115,7 @@ class JwtSupportTest {
 
 		clock.setTo(BASE.plusMinutes(29));
 
-		assertThat(jwtSupport.parse(token)).isEqualTo(USER);
+		assertThat(jwtSupport.parse(token).userId()).isEqualTo(USER);
 	}
 
 	/**
