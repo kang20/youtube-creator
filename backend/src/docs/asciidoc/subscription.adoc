@@ -1,0 +1,79 @@
+== 구독 (subscription)
+
+매월 자동 갱신되는 **계약**과 그 계약이 만드는 **기간권**. 요구 정본은
+`backend/docs/new-domain/payment.md` [구독 애그리거트] 절이다.
+
+[IMPORTANT]
+====
+**서버가 구독 상태를 물어볼 API 는 없다.** 최초 결제 이후의 상태 변화를 아는 경로는 웹훅 하나뿐이고,
+어긋나도 바로잡을 조회 수단이 없다. 그래서 이 도메인의 엔드포인트는 둘 다 **상태를 받아 반영하는**
+경로이며, 조회 경로가 아니다.
+
+**구독을 만드는 API 는 없다.** 구독은 결제 지급(`POST /api/v1/payments/grant`)이 확정될 때
+서버 내부에서 열린다 — 웹훅으로도, 재확인으로도 구독은 생기지 않는다.
+====
+
+=== `POST /api/v1/webhooks/toss/subscription` — 웹훅 수신 (토스 → 서버)
+
+**프론트가 부르는 API 가 아니다.** 토스 콘솔의 콜백 URL 로 등록한다.
+
+인증 게이트 밖(토스는 우리 토큰을 보내지 않는다)이고, 대신 **공유 시크릿 헤더**로 막는다.
+이벤트는 2종이다 — `callback.registration_verification`(**이걸 정상 수신해야 URL 이 활성화된다**)과
+`subscription.status_changed`.
+
+operation::subscription-webhook[snippets='http-request,request-headers,request-fields,http-response']
+
+* 반영 근거는 **변경 후 스냅샷의 `status`·`expiresAt`·`autoRenew` 세 값**이다.
+  `changeReason` 12종으로 분기하지 않고, `accessGranted` 는 산식이 공개돼 있지 않아 쓰지 않는다.
+* 순서 판단의 근거는 `occurredAt` 하나다(이벤트 식별자가 없다). **이미 반영한 것보다 과거·같은 시각의
+  웹훅은 무시**되며 그래도 204 다 — 오류가 아니라 정상 무동작이다.
+* `expiresAt`·`autoRenew`·`occurredAt` 이 비어 오면 **서버가 아는 값을 유지**한다.
+
+operation::subscription-webhook-registration[snippets='http-request,http-response']
+
+=== 실패 처리 (웹훅)
+
+operation::subscription-webhook-fail-forged[snippets='http-response']
+operation::subscription-webhook-fail-no-secret[snippets='http-response']
+
+|===
+| 응답 | 뜻
+
+| 204 | 수신 성공. **반영에 실패해도 204 다** — 재전송 정책이 없어 실패를 알려도 다시 오지 않는다
+| 401 `AUTH_002` | 공유 시크릿 불일치 **또는 헤더 누락**. 반영하지 않는다
+|===
+
+=== `POST /api/v1/subscriptions/recheck` — 재확인 (프론트 → 서버)
+
+구독 상태를 서버가 모르게 된 구간(**상태 미확인**)을, 클라이언트가 SDK `getSubscriptionInfo` 로
+읽은 값으로 **임시 보정**한다. 인증 필요.
+
+operation::subscription-recheck[snippets='http-request,request-headers,request-fields,http-response']
+
+* **정본이 아니다.** 웹훅이 정본이고 이 값은 미확인을 푸는 임시 조치다 — 그래서 서버는 이 호출로
+  웹훅 순서 판단의 기준값을 갱신하지 않는다(갱신하면 뒤늦게 온 웹훅이 버려진다).
+* **미확인이 아니면 아무것도 하지 않는다.** 모르는 주문이어도 마찬가지이며 **오류가 아니라 204** 다 —
+  몇 번을 불러도 안전하다.
+* **대상은 `orderId` 로 지목하고 소유자는 토큰이 정한다.** `getSubscriptionInfo` 는 `orderId` 를 인자로
+  받으므로 클라이언트가 이미 알고 있다(응답에는 없다 — 주문 생성 시점 값을 보관해 쓴다).
+  **남의 주문을 보내도 오류가 아니라 무동작 204** 다 — 갈라 답하면 주문 존재 여부가 새어 나간다.
+
+=== 실패 처리 (재확인)
+
+operation::subscription-recheck-fail-unknown-status[snippets='http-response']
+operation::subscription-recheck-fail-invalid[snippets='http-response']
+
+|===
+| 응답 | 프론트 행동
+
+| 204 | 보정됐거나, 보정할 것이 없었다. 최신 이용권 상태는 이용권 조회로 다시 읽는다
+| 400 `COMMON_001` | 상태 값이 6종에 없거나 필수 필드 누락. 재시도해도 같다 — SDK 응답을 확인한다
+| 401 | 토큰 문제. 인증 절 참조
+|===
+
+[CAUTION]
+====
+**응답 본문이 없다(204).** 보정 후의 이용권 상태를 내려주려면 횟수권과 합성하는 읽기 모델이
+필요한데 아직 없다. 읽기 모델이 생기면 이 응답에 반환형이 붙는다 —
+**프론트 계약으로 확정되기 전이다**(`backend/workspace/subscription/blockers.md` B1).
+====

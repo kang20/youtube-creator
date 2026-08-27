@@ -1,0 +1,130 @@
+== 자막 (subtitle)
+
+이 서비스가 실제로 파는 것을 이 도메인이 만든다. 목적은 영상 처리가 아니라
+**돈을 낸 사용자가 어디서 이탈해도 결과물을 잃지 않게 하는 것**이다. 요구 정본은
+`backend/docs/new-domain/subtitle/subtitle-v1.md` 다.
+
+[IMPORTANT]
+====
+**`status` 하나가 화면 분기의 유일한 근거다.**
+
+|===
+| status | 뜻 | 화면
+
+| `CREATED` | 작업이 열렸고 원본 수신을 기다린다 | 업로드 진행
+| `REQUEST_SCRIPT` | 대본 생성을 워커에게 넘겼다 | "대본을 생성하고 있어요" + 폴링
+| `COMPLETED_SCRIPT` | 대본이 나왔고 **사용자의 확정을 기다린다** | 편집 화면 (`scriptUrl` 로 읽고 쓴다)
+| `CONFIRM_SCRIPT` | 사용자가 확정했다 — 머무는 시간이 없거나 아주 짧다 | (통과 상태)
+| `REQUEST_SUBTITLE` | 자막 파일 산출을 워커에게 넘겼다 | "자막을 생성하는 중이에요" + 폴링
+| `COMPLETED_SUBTITLE` | 자막 파일이 나왔다 | 결과 화면 (`subtitleUrl` 로 받는다)
+| `FAILURE` | 장애·시간 초과로 닫혔다 | `failureCause` 로 안내 분기
+|===
+
+* **폴링은 클라이언트 재량이다.** 주기·타임아웃·백오프는 서버 계약에 없다 — 서버는 언제 물어도
+  현재 상태를 답한다. 더 진행될 것이 없는 상태(`COMPLETED_SCRIPT` · `COMPLETED_SUBTITLE` ·
+  `FAILURE`)에서는 폴링을 멈춘다.
+* **처리 실패는 오류 응답으로 오지 않는다.** 실패는 사용자가 앞에 없을 때 일어나므로
+  조회의 200 응답 안에 `FAILURE` 상태와 사유로만 나타난다.
+* **`expired` 는 상태가 아니라 별도 축이다.** 완료된 작업도 만료될 수 있다 — 원본만 지워진 것이고
+  결과물은 남는다.
+====
+
+=== `POST /api/v1/jobs` — 작업 열기
+
+이용 자격 검토(소모)와 작업 생성이 **한 트랜잭션**이다. 소모가 거부되면 작업도 태어나지 않는다.
+성공하면 원본 업로드용 단명 링크를 준다. 인증 필요.
+
+operation::subtitle-open[snippets='http-request,request-headers,http-response,response-fields']
+
+* **이용 게이트는 여기에만 걸린다.** 조회·목록·결과 수령에는 걸리지 않는다 — 이미 만든 결과물은
+  이용권이 끊긴 뒤에도 받을 수 있다.
+* 업로드가 끝나면 `POST /api/v1/jobs/{jobId}/source` 로 수신 확인을 요청한다.
+  업로드 자체는 `uploadUrl` 로 스토리지에 직접 한다 — 서버를 거치지 않는다.
+
+==== 실패
+
+operation::subtitle-open-fail-no-pass[snippets='http-response']
+
+이용권이 없어 거부하는 것은 **자막 도메인의 코드가 아니다** — 결제 계열(`PAY_001`)이 그대로 답한다.
+결제 화면으로 유도한다.
+
+=== `POST /api/v1/jobs/{jobId}/source` — 원본 수신 확인
+
+클라이언트의 "다 올렸다"만으로 착수하지 않는다 — **서버가 실물을 확인한 뒤에만** 대본 생성을
+의뢰한다. 재요청은 오류가 아니라 현재 상태를 그대로 돌려준다(멱등).
+
+operation::subtitle-receive-source[snippets='http-request,path-parameters,http-response,response-fields']
+
+==== 실패
+
+operation::subtitle-receive-source-fail-not-uploaded[snippets='http-response']
+operation::subtitle-receive-source-fail-not-found[snippets='http-response']
+
+=== `POST /api/v1/jobs/{jobId}/confirm` — 대본 확정
+
+편집을 마쳤다고 선언하는 행위이자 **자막 파일 산출의 트리거**다. 편집하지 않고 그대로 확정하는
+것도 정상 경로다. **확정은 되돌릴 수 없다**(초기 개발 확정).
+
+operation::subtitle-confirm[snippets='http-request,path-parameters,http-response,response-fields']
+
+* **멱등이다.** 같은 작업에 두 번 와도 오류가 아니라 현재 상태를 돌려준다 — 산출이 두 번 돌면
+  같은 파일이 두 벌 생기기 때문에 서버가 막는다.
+* 대본이 비어 있으면(0행) 워커를 거치지 않고 곧장 `COMPLETED_SUBTITLE` 로 온다 — 만들 것이 없다.
+
+==== 실패
+
+operation::subtitle-confirm-fail-not-editable[snippets='http-response']
+
+확정은 `COMPLETED_SCRIPT`(사용자 대기 구간)에서만 받는다. 그 밖의 상태에서 온 확정은 409 다.
+
+=== `GET /api/v1/jobs/{jobId}` — 상태 조회 (폴링 대상)
+
+언제 물어도 처리 완료를 기다리지 않고 **즉시 현재 상태를 답한다.**
+
+operation::subtitle-detail[snippets='http-request,path-parameters,http-response,response-fields']
+
+* 응답에 실리는 것은 **수명이 짧은 링크뿐이다.** 저장소 위치(키)는 어떤 응답에도 없다.
+* `scriptUrl` 은 `COMPLETED_SCRIPT` 에서만 온다(쓰기 가능 — 편집이 허용되는 유일한 시점).
+  확정하면 다시 열리지 않는다.
+
+완료된 작업 — 자막 링크와 형식이 함께 온다:
+
+operation::subtitle-detail-completed[snippets='http-response']
+
+실패한 작업 — **오류 응답이 아니라 200 이다.** 상태와 사유로 안내를 분기한다.
+`SERVER_FAULT` 는 이용권이 회복된 상태고, `ABANDONED`(24시간 방치)는 회복이 없다:
+
+operation::subtitle-detail-failed[snippets='http-response']
+
+==== 실패
+
+operation::subtitle-detail-fail-not-found[snippets='http-response']
+
+=== `GET /api/v1/jobs` — 작업 목록
+
+**아카이브가 아니라 복구 장치다.** 이탈했다 돌아온 사용자가 진행 중인 작업으로 되돌아가는
+유일한 경로다.
+
+operation::subtitle-list[snippets='http-request,http-response,response-fields']
+
+작업이 없는 것은 실패가 아니다 — 200 의 빈 배열이다:
+
+operation::subtitle-list-empty[snippets='http-response']
+
+조회 실패는 **빈 목록과 모양이 다르다.** 진행 중인 작업이 있는데 빈 목록으로 그리면 사용자는
+결과물을 잃었다고 판단한다 — 500 이면 목록 화면에 오류를 그린다:
+
+operation::subtitle-list-fail-error[snippets='http-response']
+
+=== 실패 처리 요약
+
+|===
+| 응답 | 프론트 행동
+
+| 403 `PAY_001` | 이용권 없음(열기 전용). 결제 화면으로 유도 — 작업은 태어나지 않았다
+| 404 `SUBTITLE_001` | 없는 작업 = 남의 작업(같은 코드 — 존재 비노출). 목록으로 돌아간다
+| 409 `SUBTITLE_002` | 지금 상태에서는 할 수 없는 요청. 상태를 조회해 화면을 갱신한다 — 같은 요청 재시도는 소용없다
+| 400 `SUBTITLE_003` | 원본이 한계를 넘었다. **초기 개발에서는 발생하지 않는다**(수치 제약 미적용 확정) — 코드만 예약돼 있다
+| 500 `COMMON_002` | 서버 오류. 목록·조회 화면은 빈 상태가 아니라 오류로 그린다
+| 401 | 토큰 문제. 인증 절 참조
+|===

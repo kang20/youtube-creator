@@ -16,3 +16,5 @@ include::payment.adoc[]
 
 include::subscription.adoc[]
 
+include::subtitle.adoc[]
+
