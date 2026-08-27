@@ -213,7 +213,7 @@ Subscription                      -- 기간권. 구독 주문당 1행
   expiresAt         LocalDateTime -- 만료 예정. **최초엔 추정값(결제일+31일 — §4-7-1④)**
   autoRenew         boolean
   lastWebhookOccurredAt LocalDateTime  -- 순서 역전 판정용. ⚠️ recheck 는 이 값을 갱신하지 않는다(§4-7-1⑦)
-  expiresAtEstimated boolean      -- true = 웹훅이 아직 한 번도 덮지 않았다
+                                       -- NULL = 웹훅 미수신. "정본을 받았는가"도 이 값이 답한다
   createdAt/updatedAt
   UNIQUE (order_id) · UNIQUE (user_id)
 
@@ -236,11 +236,16 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 - ⚠️ **`Subscription.userId` 도 UNIQUE 다.** 플랜 전환 시 중복 구독 사례가 보고돼 있는데
   (payment.md §8), **우리는 플랜이 하나뿐**이라 두 번째 활성 구독은 정상 상태가 아니다.
   두 번째가 오면 DB 가 거부하고 `PAY_003` 으로 떨어진다 — **조용히 두 개를 갖는 것보다 낫다.**
-- **`expiresAtEstimated` 는 진단 정보다** — 웹훅 정본을 한 번이라도 받았는지를 남긴다.
-  ⚠️ **(구현 라운드 1 정정)** 초안은 이 필드를 STALE 판정식에 넣었지만 **기각됐다** —
-  그러면 정본 수신 **후**의 갱신 유실(매월 반복되는 정상 시나리오)을 STALE 로 못 잡아
-  §6-7 이 금지한 "이미 낸 사람에게 결제 유도" 경로가 된다. **판정 트리거는 payment.md §4-7-1③
-  원문대로 시간 경과다**: `status == ACTIVE && (expiresAt + 유예 1일) 경과`.
+- ⚠️ **`expiresAtEstimated` 는 없다 — 컬럼째 걷어냈다(2026-08-17 결정).** 경위를 남긴다:
+  ⓐ 초안은 이 필드를 STALE 판정식에 넣었지만 **기각됐다** — 그러면 정본 수신 **후**의 갱신
+  유실(매월 반복되는 정상 시나리오)을 STALE 로 못 잡아 §6-7 이 금지한 "이미 낸 사람에게 결제
+  유도" 경로가 된다. **판정 트리거는 payment.md §4-7-1③ 원문대로 시간 경과다**:
+  `status == ACTIVE && (expiresAt + 만료 완충) 경과`.
+  ⓑ 판정 용도가 빠진 뒤 "진단 정보"로 남겼으나 **읽는 코드가 끝내 하나도 생기지 않았다.**
+  ⓒ 게다가 `recheck` 도 이 값을 `false` 로 내려, 명세("웹훅 정본을 받았는가")와 실제 의미
+  ("개시 이후 무언가로 덮였는가")가 어긋나 **진단 필드로서도 답을 주지 못했다.**
+  → 같은 사실을 **오염 없이** 말해주는 `lastWebhookOccurredAt IS NULL` 로 대체한다.
+  recheck 가 건드리지 않는 필드라 "정본을 받았는가"에 정확히 답한다.
 
 ### 3-1. 수동 DDL — **필요하다**
 
@@ -275,6 +280,12 @@ UsageTicket                       -- 소모 예약. ✅-4ⓐ "생성 시 예약 
 모듈 간 공개 계약은 루트의 **책임별 `*Port` 인터페이스**로만 노출한다 — 네이밍만으로
 "공개 인터페이스이며 어떤 책임인지"가 드러난다. HTTP 전용 흐름도 포트로 노출하되(inbound driving port)
 실질 소비자는 이 모듈의 컨트롤러다:
+
+> ⚠️ **이 절은 v1 설계 그대로이고 코드는 두 번 앞서갔다.** ⓐ 2026-08-14 롤백으로 포트는
+> `PaymentPurchasePort` 하나만 남았고(architecture.md 포트 선례), ⓑ 2026-08-15 로 그 하나마저
+> **`payment/internal/port/` 로 내려갔다** — 소비자가 자기 컨트롤러뿐이라 공개할 근거가 없었다
+> (architecture.md "공개 표면", R1). 현재 payment 의 공개 표면은 **이벤트 두 개 + `OrderId`(+컨버터)** 다.
+> 정본은 [new-domain/payment.md](../new-domain/payment.md) 와 `payment/package-info.java` 다.
 
 - **`PaymentReaderPort`** — 조회(`entitlementOf`·`products`). 소비자: bootstrap·자기 컨트롤러.
 - **`PaymentConsumePort`** — 소모(`reserve`·`commit`·`release`). 소비자: subtitle(§4 확정 계약).
@@ -477,8 +488,7 @@ handleWebhook(authHeader, event):
   3. event.occurredAt <= sub.lastWebhookOccurredAt → return           -- 순서 역전·중복(U9)
   4. applyWriter.apply(sub.id, event)                                 -- @Transactional
         status/expiresAt/autoRenew ← event.subscription.current       -- 판정 기준은 current.status
-        expiresAtEstimated = false                                    -- 정본이 왔다
-        lastWebhookOccurredAt = event.occurredAt
+        lastWebhookOccurredAt = event.occurredAt                      -- 정본이 왔다는 표시도 겸한다
         previous 가 우리 상태와 불일치 → WARN 로그 (유실 감지)          -- 보정은 §5-5
   5. 어떤 경우에도 204                                                 -- 반영 실패해도 수신은 성공
 ```
@@ -507,7 +517,6 @@ recheck(userId, fromClient):
 
   applyWriter.applyFromClient(sub.id, fromClient)          -- @Transactional
      status/expiresAt/autoRenew ← fromClient
-     expiresAtEstimated = false
      ⚠️ lastWebhookOccurredAt 은 건드리지 않는다             -- §4-7-1⑦
   return entitlementOf(userId)
 ```

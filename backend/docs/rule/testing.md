@@ -36,7 +36,17 @@
 | 모듈 통합 | `@ApplicationModuleTest` | 서비스 로직 — 해당 모듈만 부팅해 빠르다 |
 | 컨트롤러 슬라이스 | `@WebMvcTest` + `@AutoConfigureRestDocs` | HTTP 계약·문서화 |
 | 전체 통합 | `@SpringBootTest` | 모듈 간 이벤트 흐름 검증 |
+| 동시성 | `@SpringBootTest` + `ExecutorService`/`CountDownLatch` — **테스트 메서드에 `@Transactional` 금지** | UNIQUE 경쟁·조건부 UPDATE 불변식·잔량 음수 금지 검증 |
 | 구조 | `ApplicationModules.verify()` | 항상 1개 |
+
+### 동시성 테스트 — 비트랜잭션이어야 경쟁이 재현된다
+
+- **테스트 메서드에 `@Transactional` 을 달면 경쟁이 사라진다.** 테스트가 연 트랜잭션과 영속성 컨텍스트를
+  스레드들이 공유하거나 아예 못 보게 되어, 우리가 재현하려던 **커밋 대 커밋의 경쟁이 성립하지 않는다.**
+- 게다가 테스트 트랜잭션은 끝에 **롤백**된다 — INSERT 가 커밋되지 않으니 `UNIQUE` 위반도, 조건부 UPDATE 의
+  갱신 행 수 판정도 일어나지 않는다. 심판(DB 제약)이 부르지 않는 경기다(→ [architecture.md](architecture.md) "동시성").
+- ⚠️ 롤백이 없으므로 **테스트가 남긴 데이터는 직접 지운다**(`@AfterEach` 에서 `deleteAll()` 등).
+  안 지우면 다음 테스트가 남은 행을 보고 깨진다.
 
 ### @ApplicationModuleTest — 모듈 단위 통합
 

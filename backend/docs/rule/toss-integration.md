@@ -1,7 +1,7 @@
 # 토스 연동 규칙 (구현 관점)
 
 > 이 문서는 **Spring 코드에서 어떻게 구현하는지**만 다룬다. 비즈니스 흐름·API 계약은
-> `docs/server/api-spec.md` 가 권위다. 플랫폼 스펙 자체는 apps-in-toss MCP 가 정본이다(`/b-toss-api`).
+> `docs/server/api-spec.md` 가 권위다. 플랫폼 스펙 자체는 apps-in-toss MCP 가 정본이다(`/toss-api`).
 
 ## 유저 식별 — 익명키 단일
 

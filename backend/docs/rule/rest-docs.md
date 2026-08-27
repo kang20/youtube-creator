@@ -24,10 +24,10 @@ asciidoctor 가 이를 모아 HTML 을 만든다. 테스트가 깨지면 문서�
 | 파일 | 위치 | 성격 | backend 커밋 | origin push |
 |------|------|------|--------------|-------------|
 | `.adoc` 소스 | `src/docs/asciidoc/` | 백엔드 **소스 코드** (스니펫 의존) | O | ❌ |
-| `.html` 산출물 | `docs/api/` (레포 루트) | 빌드된 **완성 문서** | **O** | ✅ main (b-docs-sync) |
+| `.html` 산출물 | `docs/api/` (레포 루트) | 빌드된 **완성 문서** | **O** | ✅ main (`/docs-sync`) |
 
 > `.adoc` 은 "코드"이므로 origin 에 push 하지 않는다.
-> `.html` 은 backend 브랜치에도 **커밋한다** — `b-docs-sync` 가 `git checkout backend -- docs/api/` 로 가져오려면 backend 에 커밋돼 있어야 한다.
+> `.html` 은 backend 브랜치에도 **커밋한다** — `/docs-sync` 가 `git checkout backend -- docs/api/` 로 가져오려면 backend 에 커밋돼 있어야 한다.
 > main 은 "읽기용 완성 문서 저장소".
 
 ## 빌드 설정 (build.gradle.kts)
@@ -76,7 +76,7 @@ tasks.asciidoctor {
   → docs/api/ HTML 도 backend 브랜치에 커밋 (origin push X)
      commit: docs(api): {name} API 명세 갱신
 
-  ▼ /b-docs-sync
+  ▼ /docs-sync
 
 [main 브랜치]
   git checkout backend -- docs/api/

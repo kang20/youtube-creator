@@ -6,10 +6,10 @@
 
 | 요소 | 위치 | 역할 |
 |------|------|------|
-| `ErrorCode` enum | `common/exception/ErrorCode.java` | HttpStatus + 코드 + 메시지 매핑 |
-| `BusinessException` | `common/exception/BusinessException.java` | `RuntimeException` + `ErrorCode` |
-| `GlobalExceptionHandler` | `common/exception/GlobalExceptionHandler.java` | `@RestControllerAdvice` |
-| `ErrorResponse` | `common/dto/response/ErrorResponse.java` | `record(code, message)` |
+| `ErrorCode` enum | `shared/exception/ErrorCode.java` | HttpStatus + 코드 + 메시지 매핑 |
+| `BusinessException` | `shared/exception/BusinessException.java` | `RuntimeException` + `ErrorCode` |
+| `GlobalExceptionHandler` | `shared/exception/GlobalExceptionHandler.java` | `@RestControllerAdvice` |
+| `ErrorResponse` | `shared/dto/ErrorResponse.java` | `record(code, message)` |
 
 ## ErrorCode 네이밍
 
@@ -31,7 +31,7 @@
 | `AUTH_003` | 403 | 접근 권한 없음 (미사용 — 결제 403 은 `PAY_001`/`PAY_007`) |
 | `AUTH_004` | 401 | 만료된 access 토큰 (v4 — refresh 유도) |
 | `AUTH_005` | 401 | 무효한 refresh — 만료·재사용 (v4 — 재로그인 유도) |
-| `PAY_001`~`PAY_007` | 403/409/404/502 | 결제·이용권 — payment.md §7 정본 |
+| `PAY_001`~`PAY_007` | 403/409/404/502 | 결제·이용권 — 정본은 `ErrorCode` enum 자체다 |
 
 ## BusinessException 사용법
 
@@ -54,13 +54,11 @@ throw new BusinessException(ErrorCode.VOTE_001);
 
 응답 본문은 항상 `ErrorResponse { code, message }` 형태. REST Docs `common.adoc` 의 공통 에러 규격과 일치한다(→ [rest-docs.md](rest-docs.md)).
 
-## SSR(타임리프) 페이지 예외 — admin 콘솔
+## 보안 체인 안에서 끝나는 401/403
 
-`GlobalExceptionHandler` 는 `@RestControllerAdvice` 라 **JSON 전용**이다. SSR 페이지 컨트롤러의 예외는 별도 `@ControllerAdvice` 로 처리한다 (admin v2 §6):
-
-- `AdminPageExceptionHandler` — `basePackages`(`presentation.admin.controller.page`) 한정 + **`@Order(Ordered.HIGHEST_PRECEDENCE)` 필수** (미지정 시 전역 `@RestControllerAdvice` 와 이중 매칭되어 페이지 예외가 JSON 으로 응답됨). 신설 SSR 페이지 컨트롤러는 이 패키지에 배치하면 자동 커버 — 핸들러 등록 불필요(daily-quiz-design.md §4).
-- `BusinessException` → referer redirect + flash 에러 메시지, 그 외 → 공용 에러 페이지.
-- 보안 체인 내부에서 끝나는 401/403(필터·entryPoint 직접 응답)은 ControllerAdvice 에 도달하지 않는다 — admin 체인의 `exceptionHandling` 구성이 담당.
+필터·`AuthenticationEntryPoint` 가 직접 응답하는 401/403 은 `@RestControllerAdvice` 에 도달하지 않는다 —
+`config` 의 `exceptionHandling` 구성이 담당한다. 그래서 그 응답 포맷은 여기가 아니라 게이트 부품이 맞춘다
+(→ [architecture.md](architecture.md) "공개 표면").
 
 ## 새 도메인 추가 시
 

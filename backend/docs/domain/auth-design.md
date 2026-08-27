@@ -141,6 +141,7 @@ POST /api/v1/bootstrap                              -- (v3 갱신 — 도메인 
 User                              -- auth 모듈. 익명키당 정확히 하나(멱등, U2)
   id             Long             -- surrogate PK, IDENTITY
   anonymousKeyHash String(64)     -- ⚠️ SHA-256(익명키) 의 hex. **원문은 저장하지 않는다** (v2 — §3-2)
+  role           Role             -- (v5) USER | ADMIN. NOT NULL · @Enumerated(STRING) — §15
   createdAt      LocalDateTime    -- BaseTimeEntity. 응답의 registeredAt 이 이 값이다
   updatedAt      LocalDateTime    -- BaseTimeEntity
   UNIQUE (anonymous_key_hash)     -- 멱등의 근거. 동시 등록 경쟁을 DB 가 최종 판정한다(§6)
@@ -688,6 +689,7 @@ AuthService.register(anonymousKey):           -- ⚠️ @Transactional 을 붙�
 |---|---|---|---|---|
 | v2 | auth.md **v2** | 08-07 | §5-2 공개 경로 `~~/actuator/health~~ → /actuator/**` · §5-2/§7 `.cors()` 추가 · **§3-2 신설 — 익명키를 SHA-256 해시로 저장** · §4 `+AnonymousKeyHasher` · §12-2 해소 · §12-4 신설 | **없음 — 아직 배포 전이고 `users` 행이 0개다.** `deploy/sql/auth-v1.sql` 을 컬럼 `anonymous_key_hash VARCHAR(64)` 로 **다시 쓰면 끝난다**(ALTER 아님) |
 | **v4** | auth.md **v4** | 08-12 | **JWT 전환** — §14 부록. 게이트 소유 auth 로 이관(쟁점 3 번복) · JwtSupport·RefreshToken·refresh 엔드포인트 · @CurrentUser 리졸버 · 익명키 필터 3부품 삭제 | refresh_tokens 신규 — deploy/sql/auth-v2.sql (배포 전 수동 적용) |
+| **v5** | auth.md **v5** | 08-13 | **권한 도입** — §15 부록. `User.role` · JWT `role` 클레임 · `RoleHierarchy`(ADMIN⊃USER) · `/api/v1/admin/**` 경로 규칙 · `RoleAccessDeniedHandler`(403 AUTH_003) | `users.role` 신규 — deploy/sql/auth-v3.sql (배포 전 수동 적용). **기존 행은 DEFAULT 'USER' 로 백필** |
 | **v3** | auth.md v2 (HTTP 계약 무변경 — auth.md v3 는 bootstrap 스키마 건이며 별도) | 08-11 | **타입화된 기본키 패턴 채택**([architecture.md](../rule/architecture.md) 정본) — §4 `+UserId`·`+UserIdJavaType`(모듈 루트) · `Registration` 에 `userId` 추가(**"id 미포함" 결정 번복**) · §3-2 해시 확산 예고 정정 · §2-2 subscription 키 방식 확정(UserId 참조) · §6-5 호출자 재검토(가드 불채택 유지). 발단·첫 소비자: payment-design §2-1 쟁점 1 | **없음** — `users` 스키마 무변경(`@Id` 는 Long 유지, 경계에서만 래핑). 코드 반영은 payment 라운드 `feat(auth)` 커밋 |
 
 - v2 는 전부 **구현 라운드에서 실측으로 드러난 것**이다(blockers B1·B2·B4). 설계 검토만으로는 안 나왔다.
@@ -795,3 +797,64 @@ refresh(rawToken):                            -- 트랜잭션 없음. 원자성�
   만료 14일이 자연 정리. 정리 배치는 백로그.
 - **JWT 는 익명키 진위 문제를 해결하지 않는다** — 최초 발급 시점의 "제시자=소유자" 가정은
   v1 §4-1 리스크 수용 그대로다.
+
+---
+
+## 15. v5 부록 — 권한(Role) 설계 (2026-08-13 · 대응 auth.md v5)
+
+### 15-1. 쟁점 — 권한을 어디서 읽을 것인가
+
+v4 의 핵심 성과는 **매 요청 DB 조회 0회**(U8)다. 권한 판정을 DB 조회로 하면 그 성과가 그대로 사라진다.
+그래서 선택지는 둘뿐이었다.
+
+| 안 | 내용 | 판정 |
+|---|---|---|
+| ⓐ **JWT `role` 클레임** | 발급 시점의 권한을 서명해 싣는다 | ✅ **채택.** U8 유지. 대가는 반영 지연(최대 30분) |
+| ⓑ 요청마다 `users.role` 조회 | 항상 최신 | ❌ 기각 — U8 이 무너진다. 즉시 반영이 필요한 기능이 아직 없다 |
+
+**반영 지연은 이미 수용된 축이다** — §14-6 "강제 폐기가 access 수명만큼 지연된다"와 같은 성질이고,
+갱신(refresh)은 원래 DB 를 타는 경로라 **거기서 `users.role` 을 다시 읽어** 늦어도 30분 뒤에는 반영된다.
+
+### 15-2. 쟁점 — 계층을 authority 로 흉내 내지 않는다
+
+`ADMIN` 토큰에 `ROLE_ADMIN`·`ROLE_USER` 를 **둘 다** 넣으면 계층이 흉내 나지만,
+그 순간 **"일반 사용자만"이라는 규칙을 표현할 수 없게 된다**(운영자가 일반 사용자로도 보인다).
+
+→ 토큰의 authority 는 **자기 권한 하나**, 포함 관계는 `RoleHierarchy` **한 곳**에 선언한다.
+
+⚠️ **이 빈이 사라져도 컴파일·기존 테스트는 조용히 통과하고 운영에서만 403 이 난다.**
+`SecurityGateTest` 의 계층 테스트가 유일한 방지선이다 — 지우지 마라.
+
+### 15-3. 모듈 매핑 (신규·변경)
+
+| 위치 | 산출물 | 비고 |
+|---|---|---|
+| `auth/Role.java` | **신규** — `USER`·`ADMIN` + `authority()` + `from(claim)` | 공개 계약(`UserId` 와 같은 축). `from` 은 미지값·null 을 **USER 로** 떨어뜨린다 |
+| `auth/internal/UserPrincipal.java` | **신규** — `record(UserId, Role)`. `JwtSupport.parse` 의 반환 | 토큰이 서명으로 확정하는 전부. ⚠️ **모듈 루트가 아니다**(2026-08-15 이동) — 검증 부품과 게이트 필터 사이에서만 오가고 밖에서 쓰는 모듈이 없다(architecture.md "공개 표면", R1) |
+| `auth/UserAuthentication.java` | **변경** — `(UserId, Role)` 생성자. authority = `role.authority()` **하나** | `(UserId)` 오버로드는 USER 기본값으로 존치 |
+| `auth/RoleAccessDeniedHandler.java` | **신규** — 403 `AUTH_003` 본문 직접 작성 | 없으면 본문 없는 기본 403 — §2-1 쟁점 1 과 같은 이유 |
+| `auth/internal/entity/User.java` | **변경** — `role` 컬럼(`@Enumerated(STRING)`). 신규 등록은 항상 USER. **승격 메서드 없음** | ordinal 금지 — 상수 순서를 바꾸면 기존 행 의미가 뒤바뀐다 |
+| `auth/internal/service/support/JwtSupport.java` | **변경** — `issue(userId, role)` · `parse` 반환 `UserId` → `UserPrincipal` | `role` 클레임 이름 고정 |
+| `auth/internal/service/AuthService.java` | **변경** — login 은 등록 결과의 role 을, refresh 는 **`users` 재조회 role** 을 토큰에 싣는다 | 재조회가 반영 지연의 상한을 30분으로 묶는다 |
+| `config/SecurityConfig.java` | **변경** — `/api/v1/admin/**` → `hasRole(ADMIN)` · `RoleHierarchy` 빈 · `accessDeniedHandler` | 규칙 순서 주의 — `anyRequest()` 뒤에 두면 평가되지 않는다 |
+| `backend/deploy/sql/auth-v3.sql` | **신규 DDL** — `users.role VARCHAR(20) NOT NULL DEFAULT 'USER'` | 배포 전 수동 적용(운영 `validate`) |
+
+### 15-4. 테스트 계획 (증분)
+
+| 테스트 | 관측 대상 |
+|---|---|
+| `JwtSupportTest` | role 라운드트립 · 기본값 USER · **role 클레임 없는 토큰 → USER** · 미지값 → USER |
+| `UserAuthenticationTest` | ADMIN 의 authority 는 `ROLE_ADMIN` **하나**다 |
+| `SecurityGateTest` | USER 가 `/api/v1/admin/**` → **403 `AUTH_003`(본문 포함)** · ADMIN → 200 · 토큰 없음 → 401 · **ADMIN 이 `hasRole("USER")` 경로 통과(계층)** · 역방향은 열리지 않음 |
+
+- 계층 테스트는 **테스트 전용 체인**(`@Order(0)` + `securityMatcher`)으로 `hasRole("USER")` 규칙을
+  하나 세워 관측한다 — 운영 설정에는 아직 그런 규칙이 없어서(전부 `authenticated()`) 다른 방법이 없다.
+- 검증 완료(2026-08-13): `RoleHierarchy` 빈을 제거하면 **정확히 그 테스트만** 실패한다.
+
+### 15-5. 의도적으로 수용한 것
+
+- **권한 변경이 최대 30분 늦게 반영된다** — §15-1. 즉시 반영은 U8 을 되살리는 별개 결정이다.
+- **승격 경로가 코드에 없다** — 운영자 부여는 DB 직접 변경뿐이다(auth.md §4-8). 익명키 기반이라
+  "누가 승격시킬 자격이 있는가"를 서버가 판단할 수단이 없고, API 를 만들면 그것이 권한 상승 경로가 된다.
+- **운영자 전용 기능이 아직 없다** — 지금 확정한 것은 경로 규칙과 판정 방식뿐이다. 규칙을 나중에
+  끼워 넣으면 이미 열린 경로를 되짚어야 하므로 자리를 먼저 만들어 둔다.

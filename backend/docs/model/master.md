@@ -23,7 +23,7 @@
   집계 DTO 는 예외로 필드를 전부 적는다 — 프론트 계약이라 전부가 의미다.
 
   구역별 근거 커밋 · 갱신일
-    auth      : d2d5e26 · 2026-08-13
+    auth      : d2d5e26 · 2026-08-13   (Role 반영: 2026-08-13)
     bootstrap : 37d31a6 · 2026-08-13   (집계 컨텍스트)
     payment   : (미작성 — /domain-model payment 로 추가)
 
@@ -39,7 +39,14 @@ classDiagram
             <<애그리거트 루트>>
             +UserId id  PK
             +String anonymousKeyHash  UK
+            +Role role
             +LocalDateTime createdAt
+        }
+
+        class Role {
+            <<열거형>>
+            USER
+            ADMIN
         }
 
         class RefreshToken {
@@ -76,6 +83,7 @@ classDiagram
         }
     }
 
+    User *-- Role : 기본 USER · 승격은 DB 직접 변경뿐
     User *-- RefreshToken : 애그리거트 내부 · 같은 트랜잭션
     BootstrapResponse *-- AuthTokens
 
@@ -85,6 +93,7 @@ classDiagram
     PaymentTBD ..> User : UserId 값으로만 전달 · JPA 연관 없음
 
     note for User "익명키 원문 미저장 · 상태 없음 (탈퇴·정지 개념 없음)"
+    note for Role "요청당 판정은 DB 가 아니라 access 토큰의 role 클레임 · ADMIN ⊃ USER 는 RoleHierarchy 선언"
     note for RefreshToken "revokedAt NULL 이면 활성 · 폐기 행은 지우지 않는다 (재사용 감지 근거)"
     note for BootstrapResponse "UserId 는 싣지 않는다 — 서버 내부 식별자다"
 ```
