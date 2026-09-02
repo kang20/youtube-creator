@@ -40,7 +40,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 /**
  * {@code /api/v1/jobs} 5개 엔드포인트의 HTTP 계약 + REST Docs — 상태값이 곧 프론트 화면
- * 분기라(subtitle-v1 작업 진행 상태) 성공·실패 응답을 모두 문서화한다(rest-docs.md).
+ * 분기라(subtitle-v3 작업 진행 상태) 성공·실패 응답을 모두 문서화한다(rest-docs.md).
  *
  * <p><b>인증 게이트 뒤다</b> — 모든 요청이 Bearer 를 싣는다. 토큰 없이 401 은 게이트의 계약이라
  * {@code SecurityGateTest} 가 본다.
@@ -188,7 +188,7 @@ class SubtitleJobControllerTest extends ControllerTest {
 				responseFields(
 					fieldWithPath("jobId").description("작업 번호"),
 					fieldWithPath("status").description("작업 진행 상태 — 화면 분기의 유일한 근거."
-						+ " CREATED · REQUEST_SCRIPT · COMPLETED_SCRIPT · CONFIRM_SCRIPT ·"
+						+ " CREATED · REQUEST_SCRIPT · COMPLETED_SCRIPT ·"
 						+ " REQUEST_SUBTITLE · COMPLETED_SUBTITLE · FAILURE"),
 					fieldWithPath("failureCause").type(JsonFieldType.STRING).optional()
 						.description("FAILURE 일 때만. SERVER_FAULT(서버 귀책 — 이용권 회복됨) ·"

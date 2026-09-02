@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
 
@@ -16,8 +18,10 @@ import kang20.ytcreator.payment.PaymentUsagePort;
 import kang20.ytcreator.subtitle.internal.entity.FailureCause;
 import kang20.ytcreator.subtitle.internal.entity.Job;
 import kang20.ytcreator.subtitle.internal.entity.JobStatus;
-import kang20.ytcreator.subtitle.internal.handler.outbound.repository.JobRepository;
+import kang20.ytcreator.subtitle.internal.entity.StorageKey;
+import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import kang20.ytcreator.subtitle.internal.entity.dto.TransitionResult;
+import kang20.ytcreator.subtitle.internal.handler.outbound.repository.JobRepository;
 import kang20.ytcreator.subtitle.internal.port.SubtitleTimeoutPort;
 import kang20.ytcreator.subtitle.internal.service.support.JobWriter;
 import kang20.ytcreator.subtitle.internal.service.support.SignedUrlIssuer;
@@ -35,9 +39,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * 타임아웃 마감·멈춘 작업 재개 배치({@code SubtitleTimeoutPort}) — {@code FailureCause} 하나가
- * 돈의 방향을 정한다(subtitle-v1 실패 사유). 시간은 {@link MutableClock} 로 옮긴다 —
+ * 타임아웃 마감·멈춘 작업 회복 배치({@code SubtitleTimeoutPort}) — {@code FailureCause} 하나가
+ * 돈의 방향을 정한다(subtitle-v3 실패 사유). 시간은 {@link MutableClock} 로 옮긴다 —
  * 통과가 실행 시각에 달리면 안 된다(testing.md 작성 원칙 4).
+ * 재개 의뢰는 아웃박스를 거쳐 큐 대역({@code WorkDispatcher})에 닿는다.
  */
 @ActiveProfiles("test")
 @ApplicationModuleTest
@@ -77,7 +82,7 @@ class SubtitleTimeoutServiceTest {
 	}
 
 	private Job jobAt(JobStatus status) {
-		return JobFixture.jobAt(status, jobRepository, JobFixture.OWNER, NOW);
+		return JobFixture.jobAt(status, jobRepository, JobFixture.OWNER, NOW, workDispatcher);
 	}
 
 	private static String ref(Job job) {
@@ -168,9 +173,9 @@ class SubtitleTimeoutServiceTest {
 
 	// ── 멈춘 작업 재개 (30분) ───────────────────────────────────────────
 
-	/** REQ-15 · REQ-84 · REQ-85 · REQ-86 · REQ-116 · REQ-164 — 멈춘 그 단계를 다시 시킨다 */
+	/** REQ-15 · REQ-84 · REQ-85 · REQ-86 · REQ-116 · REQ-164 — 산출물이 없으면 멈춘 그 단계를 다시 시킨다 */
 	@Test
-	@DisplayName("멈춘 작업은 같은 단계로 다시 의뢰된다 — 재개 창을 새로 연다")
+	@DisplayName("산출물 없이 멈춘 작업은 같은 단계로 다시 의뢰된다 — 재개 창을 새로 연다")
 	void 멈춘_작업은_같은_단계로_다시_의뢰된다() {
 		Job job = jobAt(JobStatus.REQUEST_SCRIPT);
 		LocalDateTime detectedAt = NOW.plus(Job.STALL_THRESHOLD).plusMinutes(1);
@@ -182,7 +187,8 @@ class SubtitleTimeoutServiceTest {
 		assertThat(redispatched.getStatus()).isEqualTo(JobStatus.REQUEST_SCRIPT);
 		assertThat(redispatched.getRedispatchCount()).isEqualTo(1);
 		assertThat(redispatched.getLastTransitionedAt()).isEqualTo(detectedAt);
-		verify(workDispatcher).dispatch(job.getId(), JobStatus.REQUEST_SCRIPT);
+		verify(storageInspector).exists(StorageKey.scriptOf(job.getId()));   // 재투입 전에 산출물부터 본다
+		verify(workDispatcher, timeout(5000)).dispatch(job.getId(), WorkStage.SCRIPT);
 		verifyNoInteractions(paymentUsagePort);
 	}
 
@@ -195,13 +201,65 @@ class SubtitleTimeoutServiceTest {
 
 		subtitleTimeoutPort.redispatchStalled();
 
-		verify(workDispatcher).dispatch(job.getId(), JobStatus.REQUEST_SUBTITLE);
+		verify(workDispatcher, timeout(5000)).dispatch(job.getId(), WorkStage.SUBTITLE);
 		assertThat(reload(job).getStatus()).isEqualTo(JobStatus.REQUEST_SUBTITLE);
+	}
+
+	/** 조정(reconcile) — 통지만 유실된 작업은 산출물로 전진시키고 워커를 다시 부르지 않는다(v3) */
+	@Test
+	@DisplayName("대본이 이미 있는 멈춘 작업은 워커 없이 사용자 확정 대기로 전진한다")
+	void 대본이_이미_있는_멈춘_작업은_워커_없이_전진한다() {
+		Job job = jobAt(JobStatus.REQUEST_SCRIPT);
+		clock.setTo(NOW.plus(Job.STALL_THRESHOLD).plusMinutes(1));
+		when(storageInspector.exists(StorageKey.scriptOf(job.getId()))).thenReturn(true);
+
+		subtitleTimeoutPort.redispatchStalled();
+
+		Job reconciled = reload(job);
+		assertThat(reconciled.getStatus()).isEqualTo(JobStatus.COMPLETED_SCRIPT);
+		assertThat(reconciled.getScript()).isEqualTo(StorageKey.scriptOf(job.getId()));
+		assertThat(reconciled.getRedispatchCount()).isZero();
+		verifyNoInteractions(workDispatcher, paymentUsagePort);
+	}
+
+	/** 조정 — 자막이 이미 있으면 완료로 닫고 소모를 확정한다. 완료 통지 경로와 같은 부수효과다(v3) */
+	@Test
+	@DisplayName("자막이 이미 있는 멈춘 작업은 워커 없이 완료로 닫고 소모를 확정한다")
+	void 자막이_이미_있는_멈춘_작업은_워커_없이_완료로_닫는다() {
+		Job job = jobAt(JobStatus.REQUEST_SUBTITLE);
+		clock.setTo(NOW.plus(Job.STALL_THRESHOLD).plusMinutes(1));
+		when(storageInspector.exists(StorageKey.subtitleOf(job.getId()))).thenReturn(true);
+
+		subtitleTimeoutPort.redispatchStalled();
+
+		Job reconciled = reload(job);
+		assertThat(reconciled.getStatus()).isEqualTo(JobStatus.COMPLETED_SUBTITLE);
+		assertThat(reconciled.getSubtitle()).isEqualTo(StorageKey.subtitleOf(job.getId()));
+		verify(paymentUsagePort).commit(ref(job));
+		verifyNoInteractions(workDispatcher);
+	}
+
+	/** 조정 중 저장소 확인 실패는 그 작업만 건너뛴다 — 다음 주기가 다시 보고, 다른 작업은 계속 간다 */
+	@Test
+	@DisplayName("저장소 확인 실패는 그 작업만 건너뛰고 다른 작업의 재개를 막지 않는다")
+	void 저장소_확인_실패는_그_작업만_건너뛴다() {
+		Job first = jobAt(JobStatus.REQUEST_SCRIPT);
+		Job second = jobAt(JobStatus.REQUEST_SCRIPT);
+		clock.setTo(NOW.plus(Job.STALL_THRESHOLD).plusMinutes(1));
+		when(storageInspector.exists(StorageKey.scriptOf(first.getId())))
+			.thenThrow(new IllegalStateException("storage unavailable"));
+
+		subtitleTimeoutPort.redispatchStalled();   // 예외가 새어 나오면 배치 전체가 죽는다
+
+		assertThat(reload(first).getRedispatchCount()).isZero();
+		assertThat(reload(second).getRedispatchCount()).isEqualTo(1);
+		verify(workDispatcher, timeout(5000)).dispatch(second.getId(), WorkStage.SCRIPT);
+		verify(workDispatcher, never()).dispatch(first.getId(), WorkStage.SCRIPT);
 	}
 
 	/** REQ-164 — 임계 이내는 멈춘 것이 아니다 */
 	@Test
-	@DisplayName("임계 이내면 재개하지 않는다")
+	@DisplayName("임계 이내면 재개하지 않는다 — 저장소도 묻지 않는다")
 	void 임계_이내면_재개하지_않는다() {
 		Job job = jobAt(JobStatus.REQUEST_SCRIPT);
 		clock.setTo(NOW.plusMinutes(29));
@@ -209,7 +267,7 @@ class SubtitleTimeoutServiceTest {
 		subtitleTimeoutPort.redispatchStalled();
 
 		assertThat(reload(job).getRedispatchCount()).isZero();
-		verifyNoInteractions(workDispatcher);
+		verifyNoInteractions(workDispatcher, storageInspector);
 	}
 
 	/** REQ-89 · REQ-143 · REQ-165 — 섞으면 사용자를 기다리는 작업을 시스템이 계속 다시 돌린다 */
@@ -222,7 +280,7 @@ class SubtitleTimeoutServiceTest {
 		subtitleTimeoutPort.redispatchStalled();
 
 		assertThat(reload(job).getStatus()).isEqualTo(JobStatus.COMPLETED_SCRIPT);
-		verifyNoInteractions(workDispatcher);
+		verifyNoInteractions(workDispatcher, storageInspector);
 	}
 
 	/** REQ-27 · REQ-135 · REQ-167 — 재개 한계(3회)를 다 쓰면 회복 한계다 — SERVER_FAULT + release */
@@ -236,7 +294,7 @@ class SubtitleTimeoutServiceTest {
 			clock.setTo(at);
 			subtitleTimeoutPort.redispatchStalled();
 		}
-		verify(workDispatcher, times(Job.REDISPATCH_LIMIT)).dispatch(job.getId(), JobStatus.REQUEST_SCRIPT);
+		verify(workDispatcher, timeout(5000).times(Job.REDISPATCH_LIMIT)).dispatch(job.getId(), WorkStage.SCRIPT);
 
 		clock.setTo(at.plus(Job.STALL_THRESHOLD).plusMinutes(1));
 		subtitleTimeoutPort.redispatchStalled();   // 4번째 필요 시점 — 더 시키지 않고 닫는다
@@ -278,9 +336,9 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(paymentUsagePort, workDispatcher);
 	}
 
-	/** REQ-170 — 재의뢰가 유실돼도 작업은 닫히지 않는다 — 상태가 진실이라 다음 주기가 다시 본다 */
+	/** REQ-170 — 재의뢰가 큐에 닿지 못해도 작업은 닫히지 않는다 — 상태가 진실이라 다음 주기가 다시 본다 */
 	@Test
-	@DisplayName("재개 의뢰 실패는 작업을 닫지 않는다")
+	@DisplayName("재개 의뢰가 큐에 닿지 못해도 작업을 닫지 않는다")
 	void 재개_의뢰_실패는_작업을_닫지_않는다() {
 		Job job = jobAt(JobStatus.REQUEST_SUBTITLE);
 		clock.setTo(NOW.plus(Job.STALL_THRESHOLD).plusMinutes(1));

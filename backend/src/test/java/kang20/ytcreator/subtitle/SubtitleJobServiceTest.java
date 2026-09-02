@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -25,6 +26,8 @@ import kang20.ytcreator.subtitle.internal.entity.JobId;
 import kang20.ytcreator.subtitle.internal.entity.JobStatus;
 import kang20.ytcreator.subtitle.internal.entity.StorageKey;
 import kang20.ytcreator.subtitle.internal.entity.SubtitleFileFormat;
+import kang20.ytcreator.subtitle.internal.entity.WorkRequested;
+import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import kang20.ytcreator.subtitle.internal.entity.dto.JobDetail;
 import kang20.ytcreator.subtitle.internal.entity.dto.JobList;
 import kang20.ytcreator.subtitle.internal.entity.dto.JobOpened;
@@ -42,15 +45,17 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.modulith.test.ApplicationModuleTest;
+import org.springframework.modulith.test.PublishedEvents;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 사용자 흐름({@code SubtitleJobPort}) — 열기·수신 확인·확정·조회·목록
- * (subtitle-v1 작업 규칙 · 이용 게이트 · 작업 소유권 · 작업 목록).
+ * (subtitle-v3 작업 규칙 · 이용 게이트 · 작업 소유권 · 작업 목록).
  *
  * <p>DB 는 진짜(H2)를 쓴다 — 열기와 소모가 <b>한 트랜잭션</b>이라는 규칙(REQ-108)은 롤백이
- * 실제로 일어나야 검증된다. 결제·저장소·큐·링크는 전부 이연된 어댑터라 대역으로 채운다.
+ * 실제로 일어나야 검증된다. 결제·저장소·큐·링크는 전부 대역으로 채운다. 워커 의뢰는 application
+ * service 가 직접 부르지 않는다 — 발행된 {@code WorkRequested} 를 아웃박스 리스너가 큐 대역으로 넘긴다.
  */
 @ActiveProfiles("test")
 @ApplicationModuleTest
@@ -93,7 +98,7 @@ class SubtitleJobServiceTest {
 	}
 
 	private Job jobAt(JobStatus status) {
-		return JobFixture.jobAt(status, jobRepository, JobFixture.OWNER, NOW);
+		return JobFixture.jobAt(status, jobRepository, JobFixture.OWNER, NOW, workDispatcher);
 	}
 
 	private static String ref(Job job) {
@@ -135,10 +140,10 @@ class SubtitleJobServiceTest {
 
 	// ── receiveSource ──────────────────────────────────────────────────
 
-	/** REQ-13 · REQ-14 · REQ-73 · REQ-76 · REQ-113 · REQ-116 — 실물 확인 뒤 전이하고 워커에 의뢰한다 */
+	/** REQ-13 · REQ-14 · REQ-73 · REQ-76 · REQ-113 · REQ-116 — 실물 확인 뒤 전이하고, 의뢰는 아웃박스를 거쳐 큐로 간다 */
 	@Test
-	@DisplayName("원본 실물이 확인되면 대본 생성을 의뢰한다 — 소모를 다시 판정하지 않는다")
-	void 원본_실물이_확인되면_대본_생성을_의뢰한다() {
+	@DisplayName("원본 실물이 확인되면 대본 생성 의뢰가 발행되고 큐로 넘어간다 — 소모를 다시 판정하지 않는다")
+	void 원본_실물이_확인되면_대본_생성을_의뢰한다(PublishedEvents events) {
 		Job job = jobAt(JobStatus.CREATED);
 		when(storageInspector.exists(StorageKey.sourceOf(job.getId()))).thenReturn(true);
 
@@ -149,14 +154,16 @@ class SubtitleJobServiceTest {
 		assertThat(saved.getStatus()).isEqualTo(JobStatus.REQUEST_SCRIPT);
 		assertThat(saved.getSource()).isEqualTo(StorageKey.sourceOf(job.getId()));
 
-		verify(workDispatcher).dispatch(job.getId(), JobStatus.REQUEST_SCRIPT);
+		assertThat(events.ofType(WorkRequested.class))
+			.containsExactly(WorkRequested.of(job.getId(), WorkStage.SCRIPT));
+		verify(workDispatcher, timeout(5000)).dispatch(job.getId(), WorkStage.SCRIPT);
 		verifyNoInteractions(paymentUsagePort);   // 진행 경로에서 이용권을 다시 묻지 않는다
 	}
 
 	/** REQ-13 · REQ-114 — 클라이언트의 "다 올렸다"만으로 착수하지 않는다 */
 	@Test
-	@DisplayName("원본 실물이 없으면 전이하지 않는다 — 소모도 일어나지 않는다")
-	void 원본_실물이_없으면_전이하지_않는다() {
+	@DisplayName("원본 실물이 없으면 전이하지 않는다 — 의뢰도 소모도 일어나지 않는다")
+	void 원본_실물이_없으면_전이하지_않는다(PublishedEvents events) {
 		Job job = jobAt(JobStatus.CREATED);
 		when(storageInspector.exists(any())).thenReturn(false);
 
@@ -165,6 +172,7 @@ class SubtitleJobServiceTest {
 			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SUBTITLE_002);
 
 		assertThat(jobRepository.findById(job.getId()).orElseThrow().getStatus()).isEqualTo(JobStatus.CREATED);
+		assertThat(events.ofType(WorkRequested.class)).isEmpty();
 		verifyNoInteractions(workDispatcher, paymentUsagePort);
 	}
 
@@ -185,7 +193,7 @@ class SubtitleJobServiceTest {
 	/** REQ-140 — 재요청은 현재 상태를 돌려주고, 다시 의뢰하지도 시각을 갱신하지도 않는다 */
 	@Test
 	@DisplayName("원본 수신 재요청은 다시 의뢰하지 않는다")
-	void 원본_수신_재요청은_다시_의뢰하지_않는다() {
+	void 원본_수신_재요청은_다시_의뢰하지_않는다(PublishedEvents events) {
 		Job job = jobAt(JobStatus.REQUEST_SCRIPT);
 		when(storageInspector.exists(any())).thenReturn(true);
 
@@ -193,6 +201,7 @@ class SubtitleJobServiceTest {
 
 		assertThat(status).isEqualTo(JobStatus.REQUEST_SCRIPT);
 		assertThat(jobRepository.findById(job.getId()).orElseThrow().getLastTransitionedAt()).isEqualTo(NOW);
+		assertThat(events.ofType(WorkRequested.class)).hasSize(1);   // 픽스처의 첫 의뢰뿐이다
 		verifyNoInteractions(workDispatcher);
 	}
 
@@ -209,41 +218,29 @@ class SubtitleJobServiceTest {
 		verifyNoInteractions(storageInspector);
 	}
 
-	/** REQ-15 · REQ-76 · REQ-85 · REQ-170 — 의뢰 유실은 오류가 아니라 "상태가 나아가지 않음"으로 드러난다 */
-	@Test
-	@DisplayName("의뢰 실패는 응답을 막지 않고 상태가 진실로 남는다")
-	void 의뢰_실패는_응답을_막지_않고_상태가_진실로_남는다() {
-		Job job = jobAt(JobStatus.CREATED);
-		when(storageInspector.exists(any())).thenReturn(true);
-		doThrow(new IllegalStateException("queue unavailable"))
-			.when(workDispatcher).dispatch(any(), any());
-
-		JobStatus status = subtitleJobPort.receiveSource(job.getId(), JobFixture.OWNER);
-
-		assertThat(status).isEqualTo(JobStatus.REQUEST_SCRIPT);
-		assertThat(jobRepository.findById(job.getId()).orElseThrow().getStatus())
-			.isEqualTo(JobStatus.REQUEST_SCRIPT);   // 재개 배치가 이 상태를 보고 다시 넘긴다
-	}
-
 	// ── confirmScript ──────────────────────────────────────────────────
 
 	/** REQ-19 · REQ-21 · REQ-51 · REQ-52 · REQ-78 · REQ-122 · REQ-123 · REQ-124 · REQ-126 · REQ-175 */
 	@Test
-	@DisplayName("확정은 빈 대본 판정을 우리가 하고 자막 산출을 의뢰한다")
-	void 확정은_빈_대본_판정을_우리가_하고_자막_산출을_의뢰한다() {
+	@DisplayName("확정은 빈 대본 판정을 우리가 하고 자막 산출 의뢰를 발행한다")
+	void 확정은_빈_대본_판정을_우리가_하고_자막_산출을_의뢰한다(PublishedEvents events) {
 		Job job = jobAt(JobStatus.COMPLETED_SCRIPT);
-		when(storageInspector.scriptEmpty(JobFixture.SCRIPT_KEY)).thenReturn(false);
+		StorageKey script = StorageKey.scriptOf(job.getId());
+		when(storageInspector.scriptEmpty(script)).thenReturn(false);
 
 		JobStatus status = subtitleJobPort.confirmScript(job.getId(), JobFixture.OWNER);
 
 		assertThat(status).isEqualTo(JobStatus.REQUEST_SUBTITLE);
-		verify(storageInspector).scriptEmpty(JobFixture.SCRIPT_KEY);
-		verify(workDispatcher).dispatch(job.getId(), JobStatus.REQUEST_SUBTITLE);
+		verify(storageInspector).scriptEmpty(script);
+		assertThat(events.ofType(WorkRequested.class))
+			.filteredOn(requested -> requested.stage() == WorkStage.SUBTITLE)
+			.containsExactly(WorkRequested.of(job.getId(), WorkStage.SUBTITLE));
+		verify(workDispatcher, timeout(5000)).dispatch(job.getId(), WorkStage.SUBTITLE);
 		verify(paymentUsagePort, never()).commit(any());
 
 		Job saved = jobRepository.findById(job.getId()).orElseThrow();
 		assertThat(saved.getStatus()).isEqualTo(JobStatus.REQUEST_SUBTITLE);
-		assertThat(saved.getScript()).isEqualTo(JobFixture.SCRIPT_KEY);   // 확정 대본 위치가 남는다
+		assertThat(saved.getScript()).isEqualTo(script);   // 확정 대본 위치가 남는다
 	}
 
 	/** REQ-42 · REQ-131 — 빈 대본은 워커 없이 완료로 가고, 그 완료도 소모가 확정되는 사건이다 */
@@ -294,13 +291,14 @@ class SubtitleJobServiceTest {
 	@Test
 	@DisplayName("조회는 대기 구간에서만 대본 편집 링크를 연다 — 다른 상태는 상태만 답한다")
 	void 조회는_대기_구간에서만_대본_편집_링크를_연다() {
-		when(signedUrlIssuer.issue(JobFixture.SCRIPT_KEY, true)).thenReturn(EDIT_URL);
 		Job waiting = jobAt(JobStatus.COMPLETED_SCRIPT);
+		StorageKey script = StorageKey.scriptOf(waiting.getId());
+		when(signedUrlIssuer.issue(script, true)).thenReturn(EDIT_URL);
 
 		JobDetail waitingDetail = subtitleJobPort.detail(waiting.getId(), JobFixture.OWNER);
 		assertThat(waitingDetail.status()).isEqualTo(JobStatus.COMPLETED_SCRIPT);
 		assertThat(waitingDetail.scriptUrl()).isEqualTo(EDIT_URL);
-		assertThat(waitingDetail.scriptUrl()).doesNotContain(JobFixture.SCRIPT_KEY.value());
+		assertThat(waitingDetail.scriptUrl()).doesNotContain(script.value());
 		assertThat(waitingDetail.subtitleUrl()).isNull();
 
 		for (JobStatus status : new JobStatus[] {JobStatus.CREATED, JobStatus.REQUEST_SCRIPT}) {
@@ -330,8 +328,9 @@ class SubtitleJobServiceTest {
 	void 완료_조회는_자막_링크와_형식을_준다() {
 		doThrow(new BusinessException(ErrorCode.PAY_001))
 			.when(paymentUsagePort).consume(any(UserId.class), any());   // 이용권 전부 거부 상태
-		when(signedUrlIssuer.issue(JobFixture.SUBTITLE_KEY, false)).thenReturn(DOWNLOAD_URL);
 		Job job = jobAt(JobStatus.COMPLETED_SUBTITLE);
+		StorageKey subtitle = StorageKey.subtitleOf(job.getId());
+		when(signedUrlIssuer.issue(subtitle, false)).thenReturn(DOWNLOAD_URL);
 		job.expire(NOW.plusMonths(1));
 		jobRepository.save(job);
 
@@ -342,7 +341,7 @@ class SubtitleJobServiceTest {
 		assertThat(detail.format()).isEqualTo(SubtitleFileFormat.MARKDOWN);
 		assertThat(detail.scriptUrl()).isNull();
 		assertThat(detail.expired()).isTrue();
-		verify(signedUrlIssuer).issue(JobFixture.SUBTITLE_KEY, false);
+		verify(signedUrlIssuer).issue(subtitle, false);
 		verify(paymentUsagePort, never()).consume(any(UserId.class), any());
 	}
 

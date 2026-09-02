@@ -14,6 +14,8 @@ import kang20.ytcreator.subtitle.internal.entity.FailureCause;
 import kang20.ytcreator.subtitle.internal.entity.Job;
 import kang20.ytcreator.subtitle.internal.entity.JobStatus;
 import kang20.ytcreator.subtitle.internal.entity.StorageKey;
+import kang20.ytcreator.subtitle.internal.entity.WorkRequested;
+import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import kang20.ytcreator.subtitle.internal.handler.outbound.repository.JobRepository;
 import kang20.ytcreator.subtitle.internal.service.support.SignedUrlIssuer;
 import kang20.ytcreator.subtitle.internal.service.support.StorageInspector;
@@ -26,16 +28,16 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.modulith.test.ApplicationModuleTest;
+import org.springframework.modulith.test.PublishedEvents;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * 작업(Job) 애그리거트의 전이 매트릭스 — 정본은 subtitle-v1 상태도("아래 표에 없는 전이는 없다").
+ * 작업(Job) 애그리거트의 전이 매트릭스 — 정본은 subtitle-v3 전이표("아래 표에 없는 전이는 없다").
  *
  * <p>상태는 전부 <b>공개 행위로만</b> 만든다({@link JobFixture}). {@code receiveSource} 가 식별자로
  * 원본 키를 채번하므로 실제 저장(H2)을 거친다 — 리포지토리는 모킹하지 않는다(testing.md 작성 원칙 2).
- *
- * <p>{@code CONFIRM_SCRIPT} 는 저장되지 않는 통과 상태라 매트릭스에서 제외한다(REQ-150).
+ * 워커 의뢰 사건은 등록만 되고 <b>저장이 발행</b>하므로 {@link PublishedEvents} 로 본다.
  */
 @ActiveProfiles("test")
 @ApplicationModuleTest
@@ -70,7 +72,7 @@ class JobTest {
 	}
 
 	private Job jobAt(JobStatus status) {
-		return JobFixture.jobAt(status, jobRepository, JobFixture.OWNER, NOW);
+		return JobFixture.jobAt(status, jobRepository, JobFixture.OWNER, NOW, workDispatcher);
 	}
 
 	// ── open ───────────────────────────────────────────────────────────
@@ -103,17 +105,32 @@ class JobTest {
 		assertThat(job.getLastTransitionedAt()).isEqualTo(LATER);
 	}
 
+	/** 워커 의뢰 사건 — 등록은 작업이, 발행은 저장이 한다(v3). 부르는 것을 잊으면 유실되는 수동 발행이 없다 */
+	@Test
+	@DisplayName("원본 수신 확인은 SCRIPT 의뢰 사건을 등록하고 저장이 발행한다")
+	void 원본_수신_확인은_SCRIPT_의뢰_사건을_등록하고_저장이_발행한다(PublishedEvents events) {
+		Job job = jobAt(JobStatus.CREATED);
+		job.receiveSource(LATER);
+
+		jobRepository.save(job);
+
+		assertThat(events.ofType(WorkRequested.class))
+			.containsExactly(WorkRequested.of(job.getId(), WorkStage.SCRIPT));
+	}
+
 	/** REQ-140 — 나아가지 않은 입력은 전이 시각을 갱신하지 않는다. 갱신하면 멈춘 작업이 영원히 안 잡힌다 */
 	@Test
-	@DisplayName("원본 수신 재요청은 오류가 아니라 무시되고 시각도 그대로다")
-	void 원본_수신_재요청은_오류가_아니라_무시되고_시각도_그대로다() {
+	@DisplayName("원본 수신 재요청은 오류가 아니라 무시되고 시각도 그대로다 — 의뢰도 다시 등록하지 않는다")
+	void 원본_수신_재요청은_오류가_아니라_무시되고_시각도_그대로다(PublishedEvents events) {
 		Job job = jobAt(JobStatus.REQUEST_SCRIPT);
 
 		boolean advanced = job.receiveSource(LATER);
+		jobRepository.save(job);
 
 		assertThat(advanced).isFalse();
 		assertThat(job.getStatus()).isEqualTo(JobStatus.REQUEST_SCRIPT);
 		assertThat(job.getLastTransitionedAt()).isEqualTo(NOW);
+		assertThat(events.ofType(WorkRequested.class)).hasSize(1);   // 픽스처가 만든 첫 의뢰뿐이다
 	}
 
 	/** REQ-147 — 닫힌 작업에는 시작할 자리가 없다 */
@@ -129,17 +146,17 @@ class JobTest {
 
 	// ── attachScript ───────────────────────────────────────────────────
 
-	/** REQ-17 · REQ-119 — 대본을 달고 사용자 확정 대기로 넘어간다 */
+	/** REQ-17 · REQ-119 — 작업 번호로 정해진 대본 위치를 달고 사용자 확정 대기로 넘어간다(v3) */
 	@Test
-	@DisplayName("대본 통지는 대본을 달고 COMPLETED_SCRIPT 로 전이한다")
+	@DisplayName("대본 통지는 작업 번호로 정해진 대본 위치를 달고 COMPLETED_SCRIPT 로 전이한다")
 	void 대본_통지는_대본을_달고_COMPLETED_SCRIPT_로_전이한다() {
 		Job job = jobAt(JobStatus.REQUEST_SCRIPT);
 
-		boolean advanced = job.attachScript(JobFixture.SCRIPT_KEY, LATER);
+		boolean advanced = job.attachScript(LATER);
 
 		assertThat(advanced).isTrue();
 		assertThat(job.getStatus()).isEqualTo(JobStatus.COMPLETED_SCRIPT);
-		assertThat(job.getScript()).isEqualTo(JobFixture.SCRIPT_KEY);
+		assertThat(job.getScript()).isEqualTo(StorageKey.scriptOf(job.getId()));
 		assertThat(job.getLastTransitionedAt()).isEqualTo(LATER);
 	}
 
@@ -149,22 +166,22 @@ class JobTest {
 	void 의뢰한_적_없는_대본_통지는_거부된다() {
 		Job job = jobAt(JobStatus.CREATED);
 
-		assertThatThrownBy(() -> job.attachScript(JobFixture.SCRIPT_KEY, LATER))
+		assertThatThrownBy(() -> job.attachScript(LATER))
 			.isInstanceOf(BusinessException.class)
 			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SUBTITLE_002);
 	}
 
-	/** REQ-136 · REQ-140 — 같은 단계의 통지가 두 번 와도 상태는 한 번만 나아가고 첫 대본이 남는다 */
+	/** REQ-136 · REQ-140 — 같은 단계의 통지가 두 번 와도 상태는 한 번만 나아가고 전이 시각이 남는다 */
 	@Test
-	@DisplayName("중복 대본 통지는 무시되고 첫 대본과 전이 시각이 남는다")
-	void 중복_대본_통지는_무시되고_첫_대본이_남는다() {
+	@DisplayName("중복 대본 통지는 무시되고 첫 전이 시각이 남는다")
+	void 중복_대본_통지는_무시되고_첫_전이_시각이_남는다() {
 		Job job = jobAt(JobStatus.COMPLETED_SCRIPT);
 
-		boolean advanced = job.attachScript(new StorageKey("worker/out/retry.md"), LATER);
+		boolean advanced = job.attachScript(LATER);
 
 		assertThat(advanced).isFalse();
 		assertThat(job.getStatus()).isEqualTo(JobStatus.COMPLETED_SCRIPT);
-		assertThat(job.getScript()).isEqualTo(JobFixture.SCRIPT_KEY);
+		assertThat(job.getScript()).isEqualTo(StorageKey.scriptOf(job.getId()));
 		assertThat(job.getLastTransitionedAt()).isEqualTo(NOW);
 	}
 
@@ -175,7 +192,7 @@ class JobTest {
 	void 지난_단계의_대본_통지는_무시된다(JobStatus status) {
 		Job job = jobAt(status);
 
-		boolean advanced = job.attachScript(new StorageKey("worker/out/late.md"), LATER);
+		boolean advanced = job.attachScript(LATER);
 
 		assertThat(advanced).isFalse();
 		assertThat(job.getStatus()).isEqualTo(status);
@@ -183,9 +200,9 @@ class JobTest {
 
 	// ── confirmScript ──────────────────────────────────────────────────
 
-	/** REQ-127 · REQ-150 — 확정은 CONFIRM_SCRIPT 로 머물지 않고 곧장 REQUEST_SUBTITLE 로 간다 */
+	/** REQ-127 · REQ-150 — 확정은 머무는 상태 없이 곧장 REQUEST_SUBTITLE 로 간다 */
 	@Test
-	@DisplayName("확정은 내용이 있으면 REQUEST_SUBTITLE 로 간다 — CONFIRM_SCRIPT 로 머물지 않는다")
+	@DisplayName("확정은 내용이 있으면 REQUEST_SUBTITLE 로 간다 — 머무는 확정 상태는 없다")
 	void 확정은_내용이_있으면_REQUEST_SUBTITLE_로_간다() {
 		Job job = jobAt(JobStatus.COMPLETED_SCRIPT);
 
@@ -196,17 +213,33 @@ class JobTest {
 		assertThat(job.getLastTransitionedAt()).isEqualTo(LATER);
 	}
 
-	/** REQ-42 — 빈 대본은 만들 것이 없다. 실패가 아니라 성공으로 닫는다 */
+	/** 워커 의뢰 사건 — 확정도 같은 길이다(v3). 픽스처의 SCRIPT 의뢰 위에 SUBTITLE 의뢰가 하나 얹힌다 */
 	@Test
-	@DisplayName("빈 대본 확정은 워커를 거치지 않고 곧장 완료로 간다")
-	void 빈_대본_확정은_워커를_거치지_않고_곧장_완료로_간다() {
+	@DisplayName("확정은 SUBTITLE 의뢰 사건을 등록하고 저장이 발행한다")
+	void 확정은_SUBTITLE_의뢰_사건을_등록하고_저장이_발행한다(PublishedEvents events) {
+		Job job = jobAt(JobStatus.COMPLETED_SCRIPT);
+		job.confirmScript(false, LATER);
+
+		jobRepository.save(job);
+
+		assertThat(events.ofType(WorkRequested.class))
+			.filteredOn(requested -> requested.stage() == WorkStage.SUBTITLE)
+			.containsExactly(WorkRequested.of(job.getId(), WorkStage.SUBTITLE));
+	}
+
+	/** REQ-42 — 빈 대본은 만들 것이 없다. 실패가 아니라 성공으로 닫고, 워커를 부르지 않는다 */
+	@Test
+	@DisplayName("빈 대본 확정은 워커를 거치지 않고 곧장 완료로 간다 — 의뢰 사건도 없다")
+	void 빈_대본_확정은_워커를_거치지_않고_곧장_완료로_간다(PublishedEvents events) {
 		Job job = jobAt(JobStatus.COMPLETED_SCRIPT);
 
 		boolean advanced = job.confirmScript(true, LATER);
+		jobRepository.save(job);
 
 		assertThat(advanced).isTrue();
 		assertThat(job.getStatus()).isEqualTo(JobStatus.COMPLETED_SUBTITLE);
 		assertThat(job.getSubtitle()).isNull();
+		assertThat(events.ofType(WorkRequested.class)).noneMatch(requested -> requested.stage() == WorkStage.SUBTITLE);
 	}
 
 	/** REQ-138 · REQ-54 — 확정 재요청은 오류가 아니다. 산출을 두 번 돌리면 파일이 두 벌 생긴다 */
@@ -237,17 +270,17 @@ class JobTest {
 
 	// ── attachSubtitle ─────────────────────────────────────────────────
 
-	/** REQ-23 · REQ-130 — 자막 파일 키를 저장하고 완료로 닫는다 */
+	/** REQ-23 · REQ-130 — 작업 번호로 정해진 자막 위치를 달고 완료로 닫는다(v3) */
 	@Test
-	@DisplayName("자막 통지는 자막을 달고 완료로 전이한다")
+	@DisplayName("자막 통지는 작업 번호로 정해진 자막 위치를 달고 완료로 전이한다")
 	void 자막_통지는_자막을_달고_완료로_전이한다() {
 		Job job = jobAt(JobStatus.REQUEST_SUBTITLE);
 
-		boolean advanced = job.attachSubtitle(JobFixture.SUBTITLE_KEY, LATER);
+		boolean advanced = job.attachSubtitle(LATER);
 
 		assertThat(advanced).isTrue();
 		assertThat(job.getStatus()).isEqualTo(JobStatus.COMPLETED_SUBTITLE);
-		assertThat(job.getSubtitle()).isEqualTo(JobFixture.SUBTITLE_KEY);
+		assertThat(job.getSubtitle()).isEqualTo(StorageKey.subtitleOf(job.getId()));
 	}
 
 	/** REQ-111 · REQ-136 — 완료·실패 뒤의 자막 통지는 무시된다 */
@@ -257,7 +290,7 @@ class JobTest {
 	void 중복_자막_통지는_무시된다(JobStatus status) {
 		Job job = jobAt(status);
 
-		boolean advanced = job.attachSubtitle(new StorageKey("worker/out/late-subtitle.md"), LATER);
+		boolean advanced = job.attachSubtitle(LATER);
 
 		assertThat(advanced).isFalse();
 		assertThat(job.getStatus()).isEqualTo(status);
@@ -270,7 +303,7 @@ class JobTest {
 	void 의뢰_전_자막_통지는_거부된다(JobStatus status) {
 		Job job = jobAt(status);
 
-		assertThatThrownBy(() -> job.attachSubtitle(JobFixture.SUBTITLE_KEY, LATER))
+		assertThatThrownBy(() -> job.attachSubtitle(LATER))
 			.isInstanceOf(BusinessException.class)
 			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SUBTITLE_002);
 	}
@@ -359,7 +392,7 @@ class JobTest {
 		assertThat(system.abandoned(NOW.plusDays(3))).isFalse();
 	}
 
-	// ── redispatch ─────────────────────────────────────────────────────
+	// ── redispatch / requestedStage ────────────────────────────────────
 
 	/** REQ-167 — 재개는 한계(3회)까지만, 자기 전이라 시각을 새로 찍어 재개 창을 다시 연다 */
 	@Test
@@ -376,6 +409,21 @@ class JobTest {
 		assertThat(job.getStatus()).isEqualTo(JobStatus.REQUEST_SCRIPT);
 	}
 
+	/** REQ-86 — 재개는 다음 단계가 아니라 멈춘 그 단계의 의뢰 사건을 다시 등록한다(v3) */
+	@Test
+	@DisplayName("재개는 멈춘 그 단계의 의뢰 사건을 다시 등록한다")
+	void 재개는_멈춘_그_단계의_의뢰_사건을_다시_등록한다(PublishedEvents events) {
+		Job job = jobAt(JobStatus.REQUEST_SUBTITLE);   // 픽스처가 SCRIPT·SUBTITLE 의뢰를 하나씩 발행했다
+		job.redispatch(LATER);
+
+		jobRepository.save(job);
+
+		assertThat(events.ofType(WorkRequested.class))
+			.filteredOn(requested -> requested.stage() == WorkStage.SUBTITLE)
+			.hasSize(2)
+			.allMatch(requested -> requested.jobId() == job.getId().longValue());
+	}
+
 	/** REQ-147 — 자기 전이가 있는 상태는 워커 의뢰 구간(REQUEST_*)뿐이다 */
 	@ParameterizedTest
 	@EnumSource(value = JobStatus.class, names = {"CREATED", "COMPLETED_SCRIPT", "COMPLETED_SUBTITLE", "FAILURE"})
@@ -384,6 +432,17 @@ class JobTest {
 		Job job = jobAt(status);
 
 		assertThatThrownBy(() -> job.redispatch(LATER))
+			.isInstanceOf(BusinessException.class)
+			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SUBTITLE_002);
+	}
+
+	/** 조정(reconcile)의 근거 — 지금 워커에게 시켜 둔 단계를 작업이 답한다(v3) */
+	@Test
+	@DisplayName("워커 의뢰 구간의 작업은 시켜 둔 단계를 답하고, 그 밖은 거부한다")
+	void 시켜_둔_단계_판정() {
+		assertThat(jobAt(JobStatus.REQUEST_SCRIPT).requestedStage()).isEqualTo(WorkStage.SCRIPT);
+		assertThat(jobAt(JobStatus.REQUEST_SUBTITLE).requestedStage()).isEqualTo(WorkStage.SUBTITLE);
+		assertThatThrownBy(() -> jobAt(JobStatus.COMPLETED_SCRIPT).requestedStage())
 			.isInstanceOf(BusinessException.class)
 			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SUBTITLE_002);
 	}

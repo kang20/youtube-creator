@@ -16,7 +16,7 @@ class PaymentUsageServiceTest {
 
 	private final PaymentUsageService paymentUsageService = new PaymentUsageService();
 
-	/** 거부 코드는 결제 계열(PAY_001)이다 — 자막 도메인의 코드가 아니다(subtitle-v1 오류 코드 규칙) */
+	/** 거부 코드는 결제 계열(PAY_001)이다 — 자막 도메인의 코드가 아니다(subtitle-v3 오류 코드 규칙) */
 	@Test
 	@DisplayName("소모는 전부 거부된다 — 게이트 없는 개방보다 안전한 쪽")
 	void 소모는_전부_거부된다() {

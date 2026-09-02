@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -25,6 +26,7 @@ import kang20.ytcreator.payment.PaymentUsagePort;
 import kang20.ytcreator.subtitle.internal.entity.Job;
 import kang20.ytcreator.subtitle.internal.entity.JobStatus;
 import kang20.ytcreator.subtitle.internal.entity.StorageKey;
+import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import kang20.ytcreator.subtitle.internal.handler.outbound.repository.JobRepository;
 import kang20.ytcreator.subtitle.internal.port.SubtitleJobPort;
 import kang20.ytcreator.subtitle.internal.port.SubtitleWorkerPort;
@@ -41,13 +43,14 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * 동시 완료 통지·동시 확정의 경쟁 — subtitle-v1 "읽어서 확인한 뒤 쓰면 동시에 도착한 완료 통지
+ * 동시 완료 통지·동시 확정의 경쟁 — subtitle-v3 "읽어서 확인한 뒤 쓰면 동시에 도착한 완료 통지
  * 두 개가 둘 다 통과해 상태가 두 칸 뛴다". 심판은 {@code @Version} 낙관적 잠금이고,
  * 진 쪽은 재시도로 "무시하고 현재 상태" 경로에 수렴해야 한다.
  *
  * <p>⚠️ 테스트 메서드에 {@code @Transactional} 을 붙이지 않는다(testing.md 동시성) — 붙이면
  * 커밋 대 커밋의 경쟁이 성립하지 않고 버전 판정도 일어나지 않는다. 롤백이 없으므로
- * 남긴 데이터는 {@code @AfterEach} 에서 직접 지운다.
+ * 남긴 데이터는 {@code @AfterEach} 에서 직접 지운다. 전체 컨텍스트라 아웃박스 리스너가 비동기로 돈다 —
+ * 큐 대역 검증은 {@code timeout} 으로 기다린다.
  */
 @ActiveProfiles("test")
 @SpringBootTest
@@ -91,19 +94,16 @@ class SubtitleConcurrencyTest {
 	@DisplayName("동시 대본 통지가 몰려도 상태는 한 칸만 나아간다 — 전원이 현재 상태로 수렴한다")
 	void 동시_대본_통지가_몰려도_상태는_한_칸만_나아간다() throws InterruptedException {
 		Job job = jobAt(JobStatus.REQUEST_SCRIPT);
-		List<StorageKey> keys = new ArrayList<>();
-		for (int i = 0; i < THREADS; i++) {
-			keys.add(new StorageKey("worker/out/draft-" + i + ".md"));
-		}
+		when(storageInspector.exists(any())).thenReturn(true);
 
-		List<JobStatus> results = race(i -> subtitleWorkerPort.attachScript(job.getId(), keys.get(i)));
+		List<JobStatus> results = race(i -> subtitleWorkerPort.attachScript(job.getId()));
 
 		assertThat(results).hasSize(THREADS).containsOnly(JobStatus.COMPLETED_SCRIPT);
 		Job settled = jobRepository.findById(job.getId()).orElseThrow();
 		assertThat(settled.getStatus())
 			.as("두 칸 뛰면 사용자 확정 없이 다음 단계가 시작된 것이다")
 			.isEqualTo(JobStatus.COMPLETED_SCRIPT);
-		assertThat(settled.getScript()).isIn(keys);
+		assertThat(settled.getScript()).isEqualTo(StorageKey.scriptOf(job.getId()));
 	}
 
 	/** REQ-53 · REQ-138 — 동시 확정이 몰려도 산출 의뢰는 한 번이다. 두 번이면 같은 파일이 두 벌 생긴다 */
@@ -116,7 +116,7 @@ class SubtitleConcurrencyTest {
 		List<JobStatus> results = race(i -> subtitleJobPort.confirmScript(job.getId(), JobFixture.OWNER));
 
 		assertThat(results).hasSize(THREADS).containsOnly(JobStatus.REQUEST_SUBTITLE);
-		verify(workDispatcher, times(1)).dispatch(job.getId(), JobStatus.REQUEST_SUBTITLE);
+		verify(workDispatcher, timeout(5000).times(1)).dispatch(job.getId(), WorkStage.SUBTITLE);
 		assertThat(jobRepository.findById(job.getId()).orElseThrow().getStatus())
 			.isEqualTo(JobStatus.REQUEST_SUBTITLE);
 	}
@@ -130,8 +130,9 @@ class SubtitleConcurrencyTest {
 	@DisplayName("동시 자막 통지가 몰려도 완료는 한 번이고 전원이 수렴한다")
 	void 동시_자막_통지가_몰려도_완료는_한_번이고_전원이_수렴한다() throws InterruptedException {
 		Job job = jobAt(JobStatus.REQUEST_SUBTITLE);
+		when(storageInspector.exists(any())).thenReturn(true);
 
-		List<JobStatus> results = race(i -> subtitleWorkerPort.attachSubtitle(job.getId(), JobFixture.SUBTITLE_KEY));
+		List<JobStatus> results = race(i -> subtitleWorkerPort.attachSubtitle(job.getId()));
 
 		assertThat(results).hasSize(THREADS).containsOnly(JobStatus.COMPLETED_SUBTITLE);
 		assertThat(jobRepository.findById(job.getId()).orElseThrow().getStatus())

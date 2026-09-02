@@ -3,8 +3,8 @@ package kang20.ytcreator.subtitle.internal.service.support;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import kang20.ytcreator.subtitle.internal.entity.JobId;
-import kang20.ytcreator.subtitle.internal.entity.JobStatus;
 import kang20.ytcreator.subtitle.internal.entity.StorageKey;
+import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -27,9 +27,9 @@ class UnavailableAdapterTest {
 	}
 
 	@Test
-	@DisplayName("임시 처리 의뢰는 조용히 삼키지 않는다")
-	void 임시_처리_의뢰는_조용히_삼키지_않는다() {
-		assertThatThrownBy(() -> new UnavailableWorkDispatcher().dispatch(new JobId(1L), JobStatus.REQUEST_SCRIPT))
+	@DisplayName("큐가 꺼진 처리 의뢰는 조용히 삼키지 않는다 — 삼키면 아웃박스가 완료로 표시된다")
+	void 큐가_꺼진_처리_의뢰는_조용히_삼키지_않는다() {
+		assertThatThrownBy(() -> new UnavailableWorkDispatcher().dispatch(new JobId(1L), WorkStage.SCRIPT))
 			.isInstanceOf(UnsupportedOperationException.class);
 	}
 
