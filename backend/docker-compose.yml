@@ -1,4 +1,4 @@
-# 로컬 개발용 MySQL. application-local.yml 의 spring.docker.compose 가 앱 기동 시 자동으로 띄운다.
+# 로컬 개발용 MySQL·Redis. application-local.yml 의 spring.docker.compose 가 앱 기동 시 자동으로 띄운다.
 # 운영은 backend/deploy/docker-compose.db.yml 을 쓴다(이 파일이 아니다).
 services:
   mysql:
@@ -20,5 +20,22 @@ services:
       timeout: 3s
       retries: 20
 
+  # 워커 큐(Redis Stream). Boot 가 컨테이너의 host/port 를 spring.data.redis 로 넘겨준다.
+  # 큐를 실제로 쓰려면 SUBTITLE_QUEUE_ENABLED=true 로 기동한다 — 기본은 꺼짐(워커 없이도 개발이 되게).
+  redis:
+    image: redis:7.4
+    container_name: ytcreator-redis-local
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"     # 호스트 6379 충돌 회피
+    volumes:
+      - ytcreator-redis-local-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   ytcreator-mysql-local-data:
+  ytcreator-redis-local-data:

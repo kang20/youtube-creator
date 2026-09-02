@@ -41,6 +41,8 @@ dependencies {
 
 	// Spring Boot Starters
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+	// 워커 큐 — Redis Stream(작업 큐·완료 큐). ytcreator.subtitle.queue.enabled 가 꺼지면 연결하지 않는다
+	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
@@ -70,6 +72,8 @@ dependencies {
 	// ── Test ─────────────────────────────────────────────────────────
 	// 모듈 구조 검증(verify) + @ApplicationModuleTest + Scenario API
 	testImplementation("org.springframework.modulith:spring-modulith-starter-test")
+	// 아웃박스(event_publication) 상태를 테스트가 직접 본다 — 런타임에는 starter-jpa 가 이미 끌고 온다
+	testImplementation("org.springframework.modulith:spring-modulith-events-core")
 	// 모듈 다이어그램/문서 자동 생성 (PlantUML · C4 · module canvas)
 	testImplementation("org.springframework.modulith:spring-modulith-docs")
 
