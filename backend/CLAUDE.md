@@ -5,7 +5,7 @@
 ## 기술 스택
 
 Spring Boot 4 · **Spring Modulith** · Java 25 · Gradle(Kotlin DSL) · JPA · Spring Security(stateless 익명키)
-· Spring REST Docs · H2(test)/MySQL(운영)
+· Spring REST Docs · H2(test)/MySQL(운영) · Redis Stream(워커 큐 — `ytcreator.subtitle.queue.enabled` 로 개폐)
 
 ## 핵심 원칙 (한 줄 요약 + 상세 링크)
 
@@ -30,7 +30,7 @@ Spring Boot 4 · **Spring Modulith** · Java 25 · Gradle(Kotlin DSL) · JPA · 
 | `payment` | 결제·지급 원장. 노출: `ConsumableGranted`·`SubscriptionGranted`·`OrderId`(+컨버터)·`PaymentUsagePort`(구현체는 이연 — 전부 거부 임시 어댑터) | `shared`, `auth` |
 | `credit` | 횟수권 잔량. **노출 없음** — `ConsumableGranted` 구독 | `shared`, `auth`, `payment` |
 | `subscription` | 구독 계약·웹훅. **노출 없음** — `SubscriptionGranted` 구독 | `shared`, `auth`, `payment` |
-| `subtitle` | 자막 작업(Job) — 업로드→대본→확정→자막 파일. **노출 없음** | `shared`, `auth`, `payment` |
+| `subtitle` | 자막 작업(Job) — 업로드→대본→확정→자막 파일. 워커 의뢰는 `WorkRequested` → 아웃박스(`event_publication`) → Redis Stream, 완료 통지는 완료 큐 소비자. **노출 없음** | `shared`, `auth`, `payment` |
 | `bootstrap` | 진입 집계(로그인) — 저장소 없음 | `shared`, `auth` |
 
 - **노출 = 다른 모듈이 실제로 import 하는 것**이다. 자기 컨트롤러·리스너만 부르는 포트는
