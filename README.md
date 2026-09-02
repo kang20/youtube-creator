@@ -214,14 +214,15 @@ SUBTITLE_QUEUE_ENABLED=true ./gradlew bootRun
 
 ## 배포
 
-> ⚠️ **아직 운용하지 않는다.** 파이프라인은 아래대로 갖춰져 있지만 실제 배포는 준비 전이다 —
-> `backend` push 가 곧 배포 트리거이므로, 준비가 끝나기 전에는 push 시점을 의식해서 잡는다.
+> ⚠️ **자동 배포는 꺼져 있다 (2026-09-03).** 배포 준비 전이라 `deploy-backend.yml` 의 `push` 트리거를
+> 주석 처리했다. 지금 `backend` 에 push 해도 배포는 돌지 않고, 필요할 때 **수동으로만** 돌린다.
+> 준비가 끝나면 그 주석을 풀어 되살린다.
 
-OCI VM 2대(앱·DB)에 **블루-그린**으로 올린다. `backend` 브랜치에 push 하면 자동으로 돈다.
+OCI VM 2대(앱·DB)에 **블루-그린**으로 올린다.
 
 | 워크플로 | 트리거 |
 |---|---|
-| `deploy-backend.yml` | `backend` push (`backend/**` 변경 시) |
+| `deploy-backend.yml` | 수동 (`push` 트리거는 주석 처리 — 원래는 `backend` push) |
 | `deploy-db.yml` | `backend` push (`docker-compose.db.yml` 변경 시) |
 | `db-migrate.yml` | 수동 — SQL 파일 지정 |
 | `rollback.yml` | 수동 |
