@@ -3,8 +3,6 @@ package kang20.ytcreator.subtitle.internal.service;
 import java.util.List;
 import java.util.function.Supplier;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
@@ -25,18 +23,14 @@ import kang20.ytcreator.subtitle.internal.port.SubtitleJobPort;
 import kang20.ytcreator.subtitle.internal.service.support.JobWriter;
 import kang20.ytcreator.subtitle.internal.service.support.SignedUrlIssuer;
 import kang20.ytcreator.subtitle.internal.service.support.StorageInspector;
-import kang20.ytcreator.subtitle.internal.service.support.WorkDispatcher;
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class SubtitleJobService implements SubtitleJobPort {
 
-	private static final Logger log = LoggerFactory.getLogger(SubtitleJobService.class);
-
 	private final JobWriter jobWriter;
 	private final JobRepository jobRepository;
-	private final WorkDispatcher workDispatcher;
 	private final SignedUrlIssuer signedUrlIssuer;
 	private final StorageInspector storageInspector;
 
@@ -56,11 +50,8 @@ public class SubtitleJobService implements SubtitleJobPort {
 		if (!storageInspector.exists(StorageKey.sourceOf(jobId))) {
 			throw new BusinessException(ErrorCode.SUBTITLE_002);
 		}
-		TransitionResult result = settleOnRace(() -> jobWriter.receiveSource(jobId, userId));
-		if (result.advanced()) {
-			dispatch(jobId, result.status());
-		}
-		return result.status();
+		// 워커 의뢰는 여기서 부르지 않는다 — 전이와 같은 트랜잭션의 아웃박스가 커밋 뒤 큐로 넘긴다
+		return settleOnRace(() -> jobWriter.receiveSource(jobId, userId)).status();
 	}
 
 	@Override
@@ -69,11 +60,7 @@ public class SubtitleJobService implements SubtitleJobPort {
 		// 확정 대기가 아니면 판정할 것이 없다 — 재요청·거부 경로는 저장소를 부르지 않는다
 		boolean scriptEmpty = job.getStatus() == JobStatus.COMPLETED_SCRIPT
 			&& storageInspector.scriptEmpty(job.getScript());
-		TransitionResult result = settleOnRace(() -> jobWriter.confirmScript(jobId, userId, scriptEmpty));
-		if (result.advanced() && result.status() == JobStatus.REQUEST_SUBTITLE) {
-			dispatch(jobId, result.status());
-		}
-		return result.status();
+		return settleOnRace(() -> jobWriter.confirmScript(jobId, userId, scriptEmpty)).status();
 	}
 
 	@Override
@@ -111,15 +98,6 @@ public class SubtitleJobService implements SubtitleJobPort {
 			return attempt.get();
 		} catch (OptimisticLockingFailureException lost) {
 			return attempt.get();
-		}
-	}
-
-	private void dispatch(JobId jobId, JobStatus stage) {
-		try {
-			workDispatcher.dispatch(jobId, stage);
-		} catch (RuntimeException e) {
-			// 진실의 기준은 작업의 상태다 — 의뢰 유실은 "상태가 나아가지 않음"으로 드러나 회복이 다시 넘긴다
-			log.warn("[subtitle] 작업 의뢰 실패 — jobId={}, stage={}", jobId, stage, e);
 		}
 	}
 }

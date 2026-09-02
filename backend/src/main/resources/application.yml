@@ -9,10 +9,18 @@ spring:
   jpa:
     open-in-view: false
 
+  # 워커 큐(Redis Stream) 접속. 로컬은 docker-compose 의 redis 컨테이너가 이 값을 덮어쓴다.
+  # 큐가 꺼져 있으면(ytcreator.subtitle.queue.enabled=false) 연결을 만들지 않는다.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
 # 모듈 간 이벤트 아웃박스: spring-modulith-starter-jpa 는 EVENT_PUBLICATION 을 JPA 엔티티로 관리한다
 # (JDBC 방식의 schema-initialization 프로퍼티는 이 구성에서 동작하지 않는다).
 # 테스트는 ddl-auto:create-drop 으로 자동 생성되지만, 운영은 validate 이므로
 # 첫 배포 전에 EVENT_PUBLICATION 테이블을 수동 DDL 로 만들어야 한다 → Phase 4 (db-migrate.yml)
+# subtitle 의 워커 의뢰(WorkRequested)가 이 테이블을 아웃박스로 쓴다 — 미완료 발행은 1분 주기로 재발행된다.
 
 ytcreator:
   subscription:
@@ -25,6 +33,18 @@ ytcreator:
       # 🔴 기본값을 코드에도 여기에도 박지 않는다 — 비어 있으면 모든 웹훅이 거부된다(fail-closed).
       #    열려 있는 채 뜨는 것보다 낫다. 운영은 TOSS_WEBHOOK_SECRET 환경변수로 주입한다.
       secret: ${TOSS_WEBHOOK_SECRET:}
+
+  subtitle:
+    queue:
+      # 워커 큐(Redis Stream). 꺼져 있으면 의뢰는 전부 거부되고(임시 어댑터) 완료 큐도 읽지 않는다 —
+      # 워커가 붙기 전까지 기본은 꺼짐이다. 켜졌는데 Redis 에 닿지 못하면 기동 실패(fail-fast).
+      enabled: ${SUBTITLE_QUEUE_ENABLED:false}
+      # 스트림·그룹 이름은 워커와의 계약이다 — 바꾸면 워커 설정도 함께 바꾼다
+      work-stream: ytcreator:subtitle:work
+      done-stream: ytcreator:subtitle:done
+      group: ytcreator-server
+      # 소비자 이름은 인스턴스마다 달라야 한다(블루-그린 두 대) — 컨테이너 HOSTNAME 이 그 역할을 한다
+      consumer: ${HOSTNAME:server-1}
 
 # 로그 상관관계 — MDC requestId 를 레벨 옆에 노출 (키 계약: docs/ops/logging.md §3.3)
 logging:
@@ -48,6 +68,10 @@ management:
   endpoint:
     health:
       show-details: never
+  # Redis 헬스는 큐를 켰을 때만 본다 — 꺼진 큐 때문에 배포 헬스 게이트가 DOWN 이 되면 안 된다
+  health:
+    redis:
+      enabled: ${SUBTITLE_QUEUE_ENABLED:false}
   # Grafana 알림 룰의 application= 셀렉터가 이 태그를 잡는다. 없으면 알림이 아무것도 못 잡는다.
   metrics:
     tags:

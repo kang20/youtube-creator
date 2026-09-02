@@ -4,10 +4,10 @@ import kang20.ytcreator.auth.UserId;
 
 /**
  * 이용 포트 — 작업 도메인이 소모·확정·해제를 부르는 유일한 표면이다.
- * 이름의 정본은 payment-v2 용어 사전, 시그니처의 정본은 subtitle-v1 '이용권 연동'이다.
+ * 이름의 정본은 payment-v2 용어 사전, 시그니처의 정본은 subtitle-v3 '이용권 연동'이다.
  *
  * <p>⚠️ 구현체가 오기 전까지는 전부 거부하는 임시 어댑터로 조립된다 —
- * 게이트 없는 개방보다 안전한 쪽으로 눕는다(subtitle-v1 이용권 연동).
+ * 게이트 없는 개방보다 안전한 쪽으로 눕는다(subtitle-v3 이용권 연동).
  */
 public interface PaymentUsagePort {
 

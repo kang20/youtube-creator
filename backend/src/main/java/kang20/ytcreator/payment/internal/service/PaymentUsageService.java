@@ -8,7 +8,7 @@ import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
 
 /**
- * 전부 거부하는 임시 어댑터다 — 이용 티켓 애그리거트가 오면 이 본체가 대체된다(subtitle-v1 이용권 연동).
+ * 전부 거부하는 임시 어댑터다 — 이용 티켓 애그리거트가 오면 이 본체가 대체된다(subtitle-v3 이용권 연동).
  * 소모가 전부 거부되므로 확정·해제까지 도달하는 경로는 없다.
  */
 @Service

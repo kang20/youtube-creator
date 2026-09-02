@@ -12,7 +12,7 @@
  * 지급을 부르는 것은 자기 컨트롤러뿐이라 {@code PaymentPurchasePort} 는 {@code internal/port} 에
  * 있다(architecture.md "공개 표면", R1). 지급은 다른 모듈이 <b>호출하지 않고 구독하며</b>, 이용
  * (소모·확정·해제)만 subtitle 이 {@code PaymentUsagePort} 로 부른다 — 구현체가 오기 전까지는
- * 전부 거부하는 임시 어댑터({@code PaymentUsageService})가 조립된다(subtitle-v1 이용권 연동).
+ * 전부 거부하는 임시 어댑터({@code PaymentUsageService})가 조립된다(subtitle-v3 이용권 연동).
  *
  * <p>⚠️ <b>이 모듈이 구현한 애그리거트는 주문 하나다</b>(2026-08-14 재설계). {@code PaymentService} 가
  * {@code internal.port.PaymentPurchasePort} 를 구현하는 도메인 모듈이라

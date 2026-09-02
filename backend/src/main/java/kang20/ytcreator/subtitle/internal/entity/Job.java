@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 import java.time.Period;
 import kang20.ytcreator.auth.UserId;
 import kang20.ytcreator.auth.UserIdJavaType;
-import kang20.ytcreator.shared.domain.BaseTimeEntity;
+import kang20.ytcreator.shared.domain.AggregateRootEntity;
 import kang20.ytcreator.shared.exception.BusinessException;
 import kang20.ytcreator.shared.exception.ErrorCode;
 import lombok.Getter;
@@ -30,18 +30,14 @@ import org.hibernate.annotations.JavaType;
 @Table(name = "jobs", indexes = @Index(name = "ix_jobs_user_id", columnList = "user_id"))
 @Getter
 @NoArgsConstructor(access = PROTECTED)
-public class Job extends BaseTimeEntity {
+public class Job extends AggregateRootEntity<Job> {
 
-	/** 사용자 대기 구간(COMPLETED_SCRIPT)의 방치 상한 — 이 초과는 서버 잘못이 아니라 이용권을 되돌리지 않는다. */
 	public static final Duration JOB_TIMEOUT = Duration.ofHours(24);
 
-	/** 원본을 지우기까지의 보관 기간 — 만료 배치는 백로그다(subtitle-v1 보관 기간). */
 	public static final Period RETENTION = Period.ofMonths(1);
 
-	/** 시스템 구간에서 이 시간을 넘겨 전이가 없으면 멈춘 것이다 — JOB_TIMEOUT(사용자 대기 상한)과 다른 축이다. */
 	public static final Duration STALL_THRESHOLD = Duration.ofMinutes(30);
 
-	/** 같은 단계를 다시 시키는 횟수의 상한 — 초과하면 SERVER_FAULT 로 닫고 이용권을 되돌린다. */
 	public static final int REDISPATCH_LIMIT = 3;
 
 	@Id
@@ -82,7 +78,7 @@ public class Job extends BaseTimeEntity {
 	@Column(name = "redispatch_count", nullable = false)
 	private int redispatchCount;
 
-	// "읽어서 확인한 뒤 쓰기"만으로는 동시 완료 통지 둘이 다 통과한다(subtitle-v1) — 진 쪽은 flush 에서 떨어진다
+	// "읽어서 확인한 뒤 쓰기"만으로는 동시 완료 통지 둘이 다 통과한다(subtitle-v3) — 진 쪽은 flush 에서 떨어진다
 	@Version
 	private Long version;
 
@@ -100,6 +96,7 @@ public class Job extends BaseTimeEntity {
 		if (status == JobStatus.CREATED) {
 			this.source = StorageKey.sourceOf(id);
 			transition(JobStatus.REQUEST_SCRIPT, now);
+			requestWork(WorkStage.SCRIPT);
 			return true;
 		}
 		if (status == JobStatus.FAILURE) {
@@ -108,9 +105,9 @@ public class Job extends BaseTimeEntity {
 		return false;   // 재시도 — 이미 나아간 상태를 그대로 돌려준다
 	}
 
-	public boolean attachScript(StorageKey script, LocalDateTime now) {
+	public boolean attachScript(LocalDateTime now) {
 		if (status == JobStatus.REQUEST_SCRIPT) {
-			this.script = script;
+			this.script = StorageKey.scriptOf(id);
 			transition(JobStatus.COMPLETED_SCRIPT, now);
 			return true;
 		}
@@ -122,21 +119,23 @@ public class Job extends BaseTimeEntity {
 
 	public boolean confirmScript(boolean scriptEmpty, LocalDateTime now) {
 		if (status == JobStatus.COMPLETED_SCRIPT) {
-			// 빈 대본은 워커를 거치지 않고 곧장 완료로 간다 — 만들 것이 없다.
-			// CONFIRM_SCRIPT 정지는 이벤트 전달 구현에 따라 없어도 된다(subtitle-v1 confirmScript 규칙)
-			transition(scriptEmpty ? JobStatus.COMPLETED_SUBTITLE : JobStatus.REQUEST_SUBTITLE, now);
+			if (scriptEmpty) {
+				transition(JobStatus.COMPLETED_SUBTITLE, now);   // 빈 대본은 만들 것이 없다 — 워커를 거치지 않는다
+			} else {
+				transition(JobStatus.REQUEST_SUBTITLE, now);
+				requestWork(WorkStage.SUBTITLE);
+			}
 			return true;
 		}
-		if (status == JobStatus.CONFIRM_SCRIPT || status == JobStatus.REQUEST_SUBTITLE
-			|| status == JobStatus.COMPLETED_SUBTITLE) {
+		if (status == JobStatus.REQUEST_SUBTITLE || status == JobStatus.COMPLETED_SUBTITLE) {
 			return false;   // 확정 재요청 — 오류가 아니라 현재 상태를 돌려준다
 		}
 		throw new BusinessException(ErrorCode.SUBTITLE_002);   // 사용자 대기 구간 밖의 확정은 거부한다
 	}
 
-	public boolean attachSubtitle(StorageKey subtitle, LocalDateTime now) {
+	public boolean attachSubtitle(LocalDateTime now) {
 		if (status == JobStatus.REQUEST_SUBTITLE) {
-			this.subtitle = subtitle;
+			this.subtitle = StorageKey.subtitleOf(id);
 			transition(JobStatus.COMPLETED_SUBTITLE, now);
 			return true;
 		}
@@ -161,7 +160,7 @@ public class Job extends BaseTimeEntity {
 	/** 시스템 구간에서 임계 시간을 넘겨 멈췄는가 — 사용자 대기(COMPLETED_SCRIPT)와 종결 상태는 판정 대상이 아니다. */
 	public boolean stalled(LocalDateTime now, Duration threshold) {
 		return switch (status) {
-			case CREATED, REQUEST_SCRIPT, CONFIRM_SCRIPT, REQUEST_SUBTITLE -> exceeded(now, threshold);
+			case CREATED, REQUEST_SCRIPT, REQUEST_SUBTITLE -> exceeded(now, threshold);
 			case COMPLETED_SCRIPT, COMPLETED_SUBTITLE, FAILURE -> false;
 		};
 	}
@@ -176,15 +175,23 @@ public class Job extends BaseTimeEntity {
 	 * 한계(REDISPATCH_LIMIT)를 다 썼으면 false — 호출자가 SERVER_FAULT 로 닫는다.
 	 */
 	public boolean redispatch(LocalDateTime now) {
-		if (status != JobStatus.REQUEST_SCRIPT && status != JobStatus.REQUEST_SUBTITLE) {
-			throw new BusinessException(ErrorCode.SUBTITLE_002);   // 자기 전이가 있는 상태는 워커 의뢰 구간뿐이다
-		}
+		WorkStage stage = requestedStage();
 		if (redispatchCount >= REDISPATCH_LIMIT) {
 			return false;
 		}
 		this.redispatchCount++;
 		this.lastTransitionedAt = now;
+		requestWork(stage);
 		return true;
+	}
+
+	/** 지금 워커에게 시켜 둔 단계 — 자기 전이가 있는 상태는 워커 의뢰 구간뿐이다. */
+	public WorkStage requestedStage() {
+		return switch (status) {
+			case REQUEST_SCRIPT -> WorkStage.SCRIPT;
+			case REQUEST_SUBTITLE -> WorkStage.SUBTITLE;
+			default -> throw new BusinessException(ErrorCode.SUBTITLE_002);
+		};
 	}
 
 	public boolean ownedBy(UserId userId) {
@@ -207,6 +214,11 @@ public class Job extends BaseTimeEntity {
 	private void transition(JobStatus next, LocalDateTime now) {
 		this.status = next;
 		this.lastTransitionedAt = now;   // 상태가 바뀔 때만 갱신한다 — 조회로 갱신하면 멈춘 작업이 영원히 안 잡힌다
+	}
+
+	// 등록만 한다 — 발행은 리포지토리 저장이 같은 트랜잭션의 아웃박스에 남기며 한다(AggregateRootEntity)
+	private void requestWork(WorkStage stage) {
+		registerEvent(WorkRequested.of(id, stage));
 	}
 
 	private boolean exceeded(LocalDateTime now, Duration threshold) {

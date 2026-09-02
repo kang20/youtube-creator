@@ -4,7 +4,7 @@ import kang20.ytcreator.shared.support.Support;
 import kang20.ytcreator.subtitle.internal.entity.StorageKey;
 
 /**
- * 저장소 조회 — "우리가 판정한다"의 수단이다(subtitle-v1, B1 해소). 읽기만 하고 내려받아 보관하지 않는다.
+ * 저장소 조회 — "우리가 판정한다"의 수단이다(subtitle-v3, B1 해소). 읽기만 하고 내려받아 보관하지 않는다.
  * 확인에 실패하면 전이하지 않는다 — 장애 예외를 삼키지 말고 그대로 올린다.
  */
 @Support

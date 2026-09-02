@@ -12,11 +12,12 @@ import org.springframework.stereotype.Service;
 import kang20.ytcreator.subtitle.internal.entity.Job;
 import kang20.ytcreator.subtitle.internal.entity.JobId;
 import kang20.ytcreator.subtitle.internal.entity.JobStatus;
+import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import kang20.ytcreator.subtitle.internal.entity.dto.TransitionResult;
 import kang20.ytcreator.subtitle.internal.handler.outbound.repository.JobRepository;
 import kang20.ytcreator.subtitle.internal.port.SubtitleTimeoutPort;
 import kang20.ytcreator.subtitle.internal.service.support.JobWriter;
-import kang20.ytcreator.subtitle.internal.service.support.WorkDispatcher;
+import kang20.ytcreator.subtitle.internal.service.support.StorageInspector;
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -27,7 +28,7 @@ public class SubtitleTimeoutService implements SubtitleTimeoutPort {
 
 	private final JobRepository jobRepository;
 	private final JobWriter jobWriter;
-	private final WorkDispatcher workDispatcher;
+	private final StorageInspector storageInspector;
 	private final Clock clock;
 
 	@Override
@@ -46,7 +47,7 @@ public class SubtitleTimeoutService implements SubtitleTimeoutPort {
 		List<Job> candidates = jobRepository.findByStatusInAndLastTransitionedAtBefore(
 			List.of(JobStatus.REQUEST_SCRIPT, JobStatus.REQUEST_SUBTITLE), bound);
 		for (Job candidate : candidates) {
-			redispatch(candidate.getId());
+			recover(candidate.getId(), candidate.requestedStage());
 		}
 	}
 
@@ -59,26 +60,28 @@ public class SubtitleTimeoutService implements SubtitleTimeoutPort {
 		}
 	}
 
-	private void redispatch(JobId jobId) {
-		TransitionResult result;
+	// 통지 유실과 연산 유실은 다른 사건이다 — 산출물이 있으면 워커를 다시 부르지 않고 그 산출물로 전진시킨다(조정)
+	private void recover(JobId jobId, WorkStage stage) {
 		try {
-			result = jobWriter.redispatchIfStalled(jobId);
+			if (storageInspector.exists(stage.output(jobId))) {
+				reconcile(jobId, stage);
+				return;
+			}
+			jobWriter.redispatchIfStalled(jobId);   // 다시 시킬 의뢰는 전이와 같은 트랜잭션의 아웃박스로 나간다
 		} catch (OptimisticLockingFailureException raced) {
 			return;   // 그 사이 상태가 나아갔다 — 다음 주기가 다시 판정한다
 		} catch (RuntimeException e) {
-			log.error("[subtitle] 멈춘 작업 재개 실패 — jobId={}", jobId, e);
-			return;
-		}
-		if (result.advanced() && result.status() != JobStatus.FAILURE) {
-			dispatch(jobId, result.status());   // 멈춘 그 단계를 다시 시킨다 — 다음 단계로 넘기지 않는다
+			log.error("[subtitle] 멈춘 작업 회복 실패 — 다음 주기가 다시 본다. jobId={}, stage={}", jobId, stage, e);
 		}
 	}
 
-	private void dispatch(JobId jobId, JobStatus stage) {
-		try {
-			workDispatcher.dispatch(jobId, stage);
-		} catch (RuntimeException e) {
-			log.warn("[subtitle] 재개 의뢰 실패 — 다음 주기가 다시 시도한다. jobId={}, stage={}", jobId, stage, e);
+	private void reconcile(JobId jobId, WorkStage stage) {
+		TransitionResult result = switch (stage) {
+			case SCRIPT -> jobWriter.attachScript(jobId);
+			case SUBTITLE -> jobWriter.attachSubtitle(jobId);
+		};
+		if (result.advanced()) {
+			log.info("[subtitle] 완료 통지 유실을 산출물로 회복 — jobId={}, stage={}", jobId, stage);
 		}
 	}
 }

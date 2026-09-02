@@ -34,7 +34,7 @@ public enum ErrorCode {
 	PAY_006(HttpStatus.BAD_GATEWAY, "결제 정보를 확인하지 못했습니다."),
 	PAY_007(HttpStatus.FORBIDDEN, "구독 상태 확인이 필요합니다."),
 
-	// ── 자막 (subtitle-v1.md 오류 코드) ────────────────────
+	// ── 자막 (subtitle-v3.md 오류 코드) ────────────────────
 	// ❗ 없는 작업과 남의 작업은 같은 코드다 — 갈라 답하면 "그 작업이 있다"는 사실이 새어 나간다.
 	SUBTITLE_001(HttpStatus.NOT_FOUND, "작업을 찾을 수 없습니다."),
 	SUBTITLE_002(HttpStatus.CONFLICT, "지금 상태에서는 처리할 수 없는 요청입니다."),
