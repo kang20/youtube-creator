@@ -15,16 +15,6 @@ import kang20.ytcreator.auth.UserIdJavaType;
 import kang20.ytcreator.shared.domain.BaseTimeEntity;
 import org.hibernate.annotations.JavaType;
 
-/**
- * refresh 토큰 — <b>원문을 저장하지 않는다</b>(U10). 행에 남는 것은 SHA-256 hex 64자뿐이다.
- * 스키마: auth-design.md §14-2 · deploy/sql/auth-v2.sql.
- *
- * <p>{@code id} 는 원시 {@code Long} 이다 — 밖으로 나가지 않는 내부 대리키는 타입화하지 않는다
- * (architecture.md "타입화된 기본키"). {@code userId} 는 노출 식별자라 {@link UserId} 값 컬럼이다.
- *
- * <p>{@code revokedAt != null} 이면 회전·재사용 폐기로 죽은 토큰이다. 죽은 행을 지우지 않는 이유:
- * <b>재사용 감지(U9)의 근거가 바로 이 행이다</b> — 지우면 재사용이 "미존재"와 구분되지 않는다.
- */
 @Entity
 @Table(
 	name = "refresh_tokens",
@@ -33,7 +23,6 @@ import org.hibernate.annotations.JavaType;
 )
 public class RefreshToken extends BaseTimeEntity {
 
-	/** SHA-256 hex 의 고정 길이 — users.anonymous_key_hash 와 같은 규율(§3-2). */
 	private static final int TOKEN_HASH_LENGTH = 64;
 
 	@Id
@@ -51,7 +40,6 @@ public class RefreshToken extends BaseTimeEntity {
 	@Column(name = "expires_at", nullable = false, updatable = false)
 	private LocalDateTime expiresAt;
 
-	/** null = 활성. 회전·전체 폐기는 조건부 UPDATE(JPQL)로만 채운다 — 세터가 없다. */
 	@Column(name = "revoked_at")
 	private LocalDateTime revokedAt;
 
@@ -84,12 +72,10 @@ public class RefreshToken extends BaseTimeEntity {
 		return revokedAt;
 	}
 
-	/** 이미 회전·폐기된 토큰인가 — true 면 재제출은 재사용(U9 탈취 신호)이다. */
 	public boolean isRevoked() {
 		return revokedAt != null;
 	}
 
-	/** 만료 판정 — {@code expiresAt <= now}. 경계 시각 정확히 그 순간부터 무효다. */
 	public boolean isExpired(LocalDateTime now) {
 		return !expiresAt.isAfter(now);
 	}

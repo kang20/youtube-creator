@@ -4,9 +4,6 @@ import com.p6spy.engine.logging.Category;
 import com.p6spy.engine.spy.appender.MessageFormattingStrategy;
 import org.hibernate.engine.jdbc.internal.FormatStyle;
 
-/**
- * p6spy 가 찍는 SQL 을 Hibernate 포매터로 정리해 읽을 수 있게 만든다. 테스트 전용.
- */
 public class PrettySqlFormat implements MessageFormattingStrategy {
 
 	@Override

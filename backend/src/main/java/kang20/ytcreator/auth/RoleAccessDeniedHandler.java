@@ -12,19 +12,6 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * 인증은 됐으나 권한이 모자란 요청을 403 {@code AUTH_003} 으로 끝낸다
- * ({@link TokenAuthenticationEntryPoint} 의 403 짝).
- *
- * <p>이것이 없으면 스프링 기본 403 이 <b>본문 없이</b> 나가서, 모든 에러가
- * {@code {code, message}} 라는 계약(error-handling.md)이 권한 축에서만 깨진다.
- * 보안 필터 체인 안에서 끝나 {@code GlobalExceptionHandler} 에 닿지 않으므로 직접 직렬화한다.
- *
- * <p>⚠️ <b>401 로 바꾸지 마라.</b> 프론트 행동이 정반대다 — 401 이면 인터셉터가 refresh·재로그인을
- * 반복하는데, 토큰은 멀쩡하고 권한만 없는 상태라 영영 풀리지 않는다(무한 루프).
- *
- * <p>어떤 권한이 필요했는지는 <b>응답에 싣지 않는다</b> — 운영자 경로의 존재를 알려 줄 이유가 없다.
- */
 @Component
 public class RoleAccessDeniedHandler implements AccessDeniedHandler {
 

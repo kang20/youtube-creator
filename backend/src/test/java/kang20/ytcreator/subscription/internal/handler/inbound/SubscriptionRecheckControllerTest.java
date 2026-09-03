@@ -29,17 +29,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * S16 — {@code POST /api/v1/subscriptions/recheck} HTTP 계약 + REST Docs
- * (payment.md "[구독 갱신의 유실 상태]" 재확인 · 참고자료 ③ · blockers.md B1 임시 결정 A).
- *
- * <p><b>인증 게이트 안이다</b> — 보정 대상이 "이 사용자의 구독"이라 소유자를 토큰이 확정해야 한다.
- * 클라이언트가 사용자를 지목하게 두면 남의 구독을 덮을 수 있다. 토큰 없이 401 이 되는 것은
- * 게이트의 계약이라 {@code SecurityGateTest} 가 본다.
- *
- * <p>⚠️ <b>응답 본문이 없다(204)</b> — blockers.md B1 이 아직 열려 있다. 이용권 읽기 모델이 생기면
- * 반환형이 바뀌고 이 스니펫도 함께 바뀐다. <b>프론트 계약 확정 전이다.</b>
- */
 @WebMvcTest(SubscriptionRecheckController.class)
 class SubscriptionRecheckControllerTest extends ControllerTest {
 
@@ -59,10 +48,6 @@ class SubscriptionRecheckControllerTest extends ControllerTest {
 	@MockitoBean
 	private SubscriptionStatusPort subscriptionStatusPort;
 
-	/**
-	 * S16 — 재확인은 204 다. 🔴 <b>구독 이력이 없어도 204</b> 이며 오류가 아니다(무동작) —
-	 * 이미 해소된 뒤의 재요청이 오류가 되지 않아야 멱등하다(blockers.md B1 선택지 A).
-	 */
 	@Test
 	@DisplayName("S16 — 재확인은 204 로 답한다 — 본문 없음. 보정할 것이 없어도 204 다")
 	void 재확인() throws Exception {
@@ -91,10 +76,6 @@ class SubscriptionRecheckControllerTest extends ControllerTest {
 		verify(subscriptionStatusPort).recheck(eq(USER_ID), any(SubscriptionSnapshot.class));
 	}
 
-	/**
-	 * S16 — 모르는 상태 어휘는 <b>입력 오류</b>(400)다. 웹훅 경로(무시)와 처리가 다르다 —
-	 * 이쪽은 우리 API 계약이라 잘못된 값을 조용히 삼키면 프론트가 버그를 못 본다.
-	 */
 	@Test
 	@DisplayName("S16 — 모르는 상태 값이면 400 COMMON_001 이다")
 	void 모르는_상태_값() throws Exception {
@@ -117,10 +98,6 @@ class SubscriptionRecheckControllerTest extends ControllerTest {
 					fieldWithPath("message").description("안내 문구"))));
 	}
 
-	/**
-	 * S16 — 필수 필드 누락은 형식 축의 400 이다. {@code expiresAt} 과 달리 {@code orderId} ·
-	 * {@code autoRenew} 는 비울 수 없다 — 대상을 지목하지 않으면 무엇을 보정할지 정할 수 없다.
-	 */
 	@Test
 	@DisplayName("S16 — orderId·status 가 비었거나 autoRenew 가 없으면 400 COMMON_001 이다")
 	void 요청_검증() throws Exception {
@@ -157,7 +134,6 @@ class SubscriptionRecheckControllerTest extends ControllerTest {
 			.andExpect(jsonPath("$.code").value(ErrorCode.COMMON_001.name()));
 	}
 
-	/** S16 — {@code expiresAt} 은 비어도 된다. SDK 가 {@code null} 을 줄 수 있고, 비면 서버 값을 유지한다. */
 	@Test
 	@DisplayName("S16 — expiresAt 이 null 이어도 204 다 — 비면 서버가 아는 만료를 유지한다")
 	void 만료가_비어_있어도_수용() throws Exception {

@@ -38,12 +38,6 @@ import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * 타임아웃 마감·멈춘 작업 회복 배치({@code SubtitleTimeoutPort}) — {@code FailureCause} 하나가
- * 돈의 방향을 정한다(subtitle-v3 실패 사유). 시간은 {@link MutableClock} 로 옮긴다 —
- * 통과가 실행 시각에 달리면 안 된다(testing.md 작성 원칙 4).
- * 재개 의뢰는 아웃박스를 거쳐 큐 대역({@code WorkDispatcher})에 닿는다.
- */
 @ActiveProfiles("test")
 @ApplicationModuleTest
 @Import({JpaAuditingConfig.class, SubtitleTestClock.class})
@@ -93,9 +87,6 @@ class SubtitleTimeoutServiceTest {
 		return jobRepository.findById(job.getId()).orElseThrow();
 	}
 
-	// ── 방치 마감 (24h) ─────────────────────────────────────────────────
-
-	/** REQ-30 · REQ-31 · REQ-133 · REQ-135 · REQ-149 · REQ-151 · REQ-152 · REQ-161 — 방치는 커밋이지 회복이 아니다 */
 	@Test
 	@DisplayName("방치된 대기 작업은 ABANDONED 로 닫고 소모를 확정한다 — 되돌리지 않는다")
 	void 방치된_대기_작업은_ABANDONED_로_닫고_소모를_확정한다() {
@@ -111,7 +102,6 @@ class SubtitleTimeoutServiceTest {
 		verify(paymentUsagePort, never()).release(any());
 	}
 
-	/** REQ-27 · REQ-28 · REQ-66 · REQ-68 · REQ-90 · REQ-135 · REQ-149 · REQ-151 — 시스템 구간의 상한 초과는 서버 잘못이다 */
 	@ParameterizedTest
 	@EnumSource(value = JobStatus.class, names = {"CREATED", "REQUEST_SCRIPT", "REQUEST_SUBTITLE"})
 	@DisplayName("시스템 구간의 상한 초과는 SERVER_FAULT 로 닫고 이용권을 되돌린다")
@@ -128,7 +118,6 @@ class SubtitleTimeoutServiceTest {
 		verify(paymentUsagePort, never()).commit(any());
 	}
 
-	/** REQ-133 — 상한 이내는 후보가 아니다 */
 	@Test
 	@DisplayName("상한 이내의 작업은 건드리지 않는다")
 	void 상한_이내의_작업은_건드리지_않는다() {
@@ -141,7 +130,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(paymentUsagePort);
 	}
 
-	/** REQ-70 — 이미 닫힌 작업을 다시 닫으면 보상이 반복된다 — 종결 상태는 후보에서 빠진다 */
 	@ParameterizedTest
 	@EnumSource(value = JobStatus.class, names = {"COMPLETED_SUBTITLE", "FAILURE"})
 	@DisplayName("종결된 작업은 마감 대상이 아니라 이용권 보상이 반복되지 않는다")
@@ -155,7 +143,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(paymentUsagePort);
 	}
 
-	/** REQ-69 — 보상 통지 유실은 최대의 금전 리스크다. 실패하면 마감이 되돌아가 다음 배치가 다시 시도한다 */
 	@Test
 	@DisplayName("보상 호출 실패는 마감을 되돌려 다음 배치가 다시 시도한다 — 한 작업의 실패가 다른 작업을 막지 않는다")
 	void 보상_호출_실패는_마감을_되돌려_다음_배치가_다시_시도한다() {
@@ -171,9 +158,6 @@ class SubtitleTimeoutServiceTest {
 		verify(paymentUsagePort, times(2)).release(any());   // 격리 — 둘 다 시도됐다
 	}
 
-	// ── 멈춘 작업 재개 (30분) ───────────────────────────────────────────
-
-	/** REQ-15 · REQ-84 · REQ-85 · REQ-86 · REQ-116 · REQ-164 — 산출물이 없으면 멈춘 그 단계를 다시 시킨다 */
 	@Test
 	@DisplayName("산출물 없이 멈춘 작업은 같은 단계로 다시 의뢰된다 — 재개 창을 새로 연다")
 	void 멈춘_작업은_같은_단계로_다시_의뢰된다() {
@@ -192,7 +176,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(paymentUsagePort);
 	}
 
-	/** REQ-86 · REQ-126 — 자막 산출 단계의 멈춤도 다음 단계가 아니라 그 단계다 */
 	@Test
 	@DisplayName("자막 단계의 멈춤도 그 단계로 다시 의뢰된다")
 	void 자막_단계의_멈춤도_그_단계로_다시_의뢰된다() {
@@ -205,7 +188,6 @@ class SubtitleTimeoutServiceTest {
 		assertThat(reload(job).getStatus()).isEqualTo(JobStatus.REQUEST_SUBTITLE);
 	}
 
-	/** 조정(reconcile) — 통지만 유실된 작업은 산출물로 전진시키고 워커를 다시 부르지 않는다(v3) */
 	@Test
 	@DisplayName("대본이 이미 있는 멈춘 작업은 워커 없이 사용자 확정 대기로 전진한다")
 	void 대본이_이미_있는_멈춘_작업은_워커_없이_전진한다() {
@@ -222,7 +204,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(workDispatcher, paymentUsagePort);
 	}
 
-	/** 조정 — 자막이 이미 있으면 완료로 닫고 소모를 확정한다. 완료 통지 경로와 같은 부수효과다(v3) */
 	@Test
 	@DisplayName("자막이 이미 있는 멈춘 작업은 워커 없이 완료로 닫고 소모를 확정한다")
 	void 자막이_이미_있는_멈춘_작업은_워커_없이_완료로_닫는다() {
@@ -239,7 +220,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(workDispatcher);
 	}
 
-	/** 조정 중 저장소 확인 실패는 그 작업만 건너뛴다 — 다음 주기가 다시 보고, 다른 작업은 계속 간다 */
 	@Test
 	@DisplayName("저장소 확인 실패는 그 작업만 건너뛰고 다른 작업의 재개를 막지 않는다")
 	void 저장소_확인_실패는_그_작업만_건너뛴다() {
@@ -257,7 +237,6 @@ class SubtitleTimeoutServiceTest {
 		verify(workDispatcher, never()).dispatch(first.getId(), WorkStage.SCRIPT);
 	}
 
-	/** REQ-164 — 임계 이내는 멈춘 것이 아니다 */
 	@Test
 	@DisplayName("임계 이내면 재개하지 않는다 — 저장소도 묻지 않는다")
 	void 임계_이내면_재개하지_않는다() {
@@ -270,7 +249,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(workDispatcher, storageInspector);
 	}
 
-	/** REQ-89 · REQ-143 · REQ-165 — 섞으면 사용자를 기다리는 작업을 시스템이 계속 다시 돌린다 */
 	@Test
 	@DisplayName("사용자 대기 구간은 재개 대상이 아니다")
 	void 사용자_대기_구간은_재개_대상이_아니다() {
@@ -283,7 +261,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(workDispatcher, storageInspector);
 	}
 
-	/** REQ-27 · REQ-135 · REQ-167 — 재개 한계(3회)를 다 쓰면 회복 한계다 — SERVER_FAULT + release */
 	@Test
 	@DisplayName("재개 한계를 다 쓰면 SERVER_FAULT 로 닫고 이용권을 되돌린다")
 	void 재개_한계를_다_쓰면_SERVER_FAULT_로_닫고_이용권을_되돌린다() {
@@ -306,7 +283,6 @@ class SubtitleTimeoutServiceTest {
 		verify(workDispatcher, times(Job.REDISPATCH_LIMIT)).dispatch(any(), any());
 	}
 
-	/** REQ-148 — 후보 조회와 마감 사이에 상태가 나아갔으면 같은 트랜잭션의 재판정이 마감을 접는다 */
 	@Test
 	@DisplayName("마감 재판정은 그새 나아간 작업을 닫지 않는다")
 	void 마감_재판정은_그새_나아간_작업을_닫지_않는다() {
@@ -319,7 +295,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(paymentUsagePort);
 	}
 
-	/** REQ-148 — 후보 조회와 재개 사이에 워커가 끝냈으면 재판정이 재의뢰를 접는다 */
 	@Test
 	@DisplayName("재개 재판정은 그새 나아간 작업을 다시 시키지 않는다")
 	void 재개_재판정은_그새_나아간_작업을_다시_시키지_않는다() {
@@ -336,7 +311,6 @@ class SubtitleTimeoutServiceTest {
 		verifyNoInteractions(paymentUsagePort, workDispatcher);
 	}
 
-	/** REQ-170 — 재의뢰가 큐에 닿지 못해도 작업은 닫히지 않는다 — 상태가 진실이라 다음 주기가 다시 본다 */
 	@Test
 	@DisplayName("재개 의뢰가 큐에 닿지 못해도 작업을 닫지 않는다")
 	void 재개_의뢰_실패는_작업을_닫지_않는다() {

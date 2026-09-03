@@ -8,11 +8,6 @@ import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * REQ-34 · REQ-172(같은 원리) — 실물(객체 스토리지·워커 큐)이 오기 전의 부팅용 임시 어댑터는
- * <b>조용히 성공하면 안 된다.</b> exists 가 조용히 true 를 돌려주면 업로드 확인이,
- * dispatch 가 조용히 삼키면 의뢰가 가짜로 성립한다 — 안전한 쪽은 실패다.
- */
 class UnavailableAdapterTest {
 
 	private static final StorageKey KEY = new StorageKey("jobs/1/source");

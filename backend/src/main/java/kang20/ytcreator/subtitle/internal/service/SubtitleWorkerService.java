@@ -42,7 +42,6 @@ public class SubtitleWorkerService implements SubtitleWorkerPort {
 		}
 	}
 
-	/** 동시에 도착한 완료 통지의 진 쪽은 승자 상태를 다시 읽어 "무시하고 현재 상태"로 수렴한다. */
 	private TransitionResult settleOnRace(Supplier<TransitionResult> attempt) {
 		try {
 			return attempt.get();

@@ -12,19 +12,8 @@ import org.hibernate.type.spi.TypeConfiguration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * 타입 ID 공통 부품 단위 (payment-design.md §10 {@code LongTypeIdentifierJavaTypeTest}).
- *
- * <p>덮는 것: wrap(Long/null/동일타입/미지원) · unwrap(Long/null/미지원) · fromString 라운드트립 ·
- * <b>리플렉션 생성자 실패 분기</b>(예외 던지는 픽스처) · ImmutableMutabilityPlan · BIGINT 매핑 ·
- * {@code ValueObject} 동등성(strict class 비교) — youngZZ 100% 커버 선례 이식(§4).
- *
- * <p>wrap/fromString 은 리플렉션으로 {@code (Long)} 생성자를 부른다 — 컴파일 타임에 안 잡히므로
- * 이 테스트가 그 계약의 감시자다(architecture.md 함정 표).
- */
 class LongTypeIdentifierJavaTypeTest {
 
-	/** 계약을 지키는 정상 픽스처 — public (Long) 생성자. */
 	static final class ProbeId extends LongTypeIdentifier {
 		public ProbeId(Long id) {
 			super(id);
@@ -37,7 +26,6 @@ class LongTypeIdentifierJavaTypeTest {
 		}
 	}
 
-	/** 생성자가 던지는 픽스처 — 리플렉션 실패 분기(IllegalStateException 래핑)를 태운다. */
 	static final class BrokenId extends LongTypeIdentifier {
 		public BrokenId(Long id) {
 			super(id);
@@ -51,7 +39,6 @@ class LongTypeIdentifierJavaTypeTest {
 		}
 	}
 
-	/** strict getClass 비교 검증용 — 같은 값의 다른 구체 타입. */
 	static final class OtherId extends LongTypeIdentifier {
 		public OtherId(Long id) {
 			super(id);
@@ -60,9 +47,6 @@ class LongTypeIdentifierJavaTypeTest {
 
 	private final ProbeIdJavaType javaType = new ProbeIdJavaType();
 
-	// ── wrap ────────────────────────────────────────────────────────────
-
-	/** JDBC BIGINT → 타입 ID. Hibernate 하이드레이션이 타는 경로다 */
 	@Test
 	@DisplayName("wrap 은 Long 을 (Long) 생성자로 감싼다")
 	void wrap_Long() {
@@ -90,15 +74,12 @@ class LongTypeIdentifierJavaTypeTest {
 			.hasMessageContaining("Unknown wrap conversion");
 	}
 
-	/** 리플렉션 계약 위반(생성자가 던짐) — IllegalStateException 으로 래핑된다 */
 	@Test
 	@DisplayName("생성자가 예외를 던지면 wrap 은 IllegalStateException 으로 래핑한다")
 	void wrap_리플렉션_실패() {
 		assertThatThrownBy(() -> new BrokenIdJavaType().wrap(1L, null))
 			.isInstanceOf(IllegalStateException.class);
 	}
-
-	// ── unwrap ──────────────────────────────────────────────────────────
 
 	@Test
 	@DisplayName("unwrap 은 Long 요청에 내부 값을 돌려준다")
@@ -120,8 +101,6 @@ class LongTypeIdentifierJavaTypeTest {
 			.hasMessageContaining("Unknown unwrap conversion");
 	}
 
-	// ── fromString / toString ───────────────────────────────────────────
-
 	@Test
 	@DisplayName("toString → fromString 라운드트립이 값을 보존한다")
 	void 문자열_라운드트립() {
@@ -140,16 +119,12 @@ class LongTypeIdentifierJavaTypeTest {
 			.isInstanceOf(IllegalStateException.class);
 	}
 
-	// ── Hibernate 계약 ──────────────────────────────────────────────────
-
-	/** 타입 ID 는 불변 — 더티체킹 스냅샷 복사가 필요 없다 */
 	@Test
 	@DisplayName("MutabilityPlan 은 Immutable 이다")
 	void 불변_계획() {
 		assertThat(javaType.getMutabilityPlan()).isSameAs(ImmutableMutabilityPlan.instance());
 	}
 
-	/** DB 컬럼은 항상 BIGINT — DDL 의 user_id BIGINT 와 이 매핑이 짝이다(payment-design.md §3-1) */
 	@Test
 	@DisplayName("권장 JDBC 타입은 BIGINT 다")
 	void BIGINT_매핑() {
@@ -171,9 +146,6 @@ class LongTypeIdentifierJavaTypeTest {
 		assertThat(jdbcType.getJdbcTypeCode()).isEqualTo(Types.BIGINT);
 	}
 
-	// ── ValueObject 동등성 (shared/domain 공통 부모) ─────────────────────
-
-	/** ValueObject — 값 동등성. 같은 값이면 같고 해시도 같다 */
 	@Test
 	@DisplayName("같은 값의 같은 타입은 동등하고 해시도 같다")
 	void 값_동등성() {
@@ -183,7 +155,6 @@ class LongTypeIdentifierJavaTypeTest {
 			.isNotEqualTo(new ProbeId(2L));
 	}
 
-	/** ValueObject — strict getClass 비교. 다른 도메인의 같은 Long 값과 섞이면 안 된다(§2-1 쟁점 1) */
 	@Test
 	@DisplayName("같은 값이라도 타입이 다르면 동등하지 않다 — 도메인 혼용 차단")
 	void 타입이_다르면_불동등() {
@@ -192,7 +163,6 @@ class LongTypeIdentifierJavaTypeTest {
 		assertThat(new ProbeId(1L)).isNotEqualTo(1L);
 	}
 
-	/** null 값 필드의 hashCode 분기(ValueObject) + toString 형식 */
 	@Test
 	@DisplayName("null 값도 동등성·해시·toString 이 안전하다")
 	void null_값_안전() {
@@ -202,7 +172,6 @@ class LongTypeIdentifierJavaTypeTest {
 		assertThat(new ProbeId(null).toString()).isEqualTo("ProbeId(null)");
 	}
 
-	/** 진단 표기 — "타입명(값)" (LongTypeIdentifier.toString) */
 	@Test
 	@DisplayName("toString 은 '타입명(값)' 형식이다")
 	void toString_형식() {

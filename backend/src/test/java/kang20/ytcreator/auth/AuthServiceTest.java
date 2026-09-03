@@ -24,38 +24,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * U2(사용자 등록·멱등) · U4(모듈 공개 API) · U7(토큰 발급 — v4).
- *
- * <p>근거: auth.md §3 U2·U4·U7 · §5-2(재호출 = 재로그인) · auth-design.md §5-1·§6-4(등록부는
- * v4 에서 그대로다 — §14-3 "registration = 기존 register 로직") · §14-2(login 흡수).
- *
- * <p><b>(v4) {@code register} 가 {@code login} 으로 흡수됐다</b>(auth.md U7 "부트스트랩이 곧
- * 로그인이다"). 멱등·경쟁 검증의 대상 메서드만 바뀌고 요구는 그대로다.
- *
- * <p>⚠️ <b>트랜잭션을 열지 않는다.</b> {@code @Transactional} 을 붙이면 auth-design.md §6-2 함정 ④가
- * 테스트에서 재현되어 설계 전제(호출자가 트랜잭션을 열지 않는다, §6-4)를 검증하지 못한다.
- *
- * <p>⚠️ <b>{@code registeredAt} 을 {@code Clock} 고정으로 단언하지 않는다</b>(blockers.md B3 ·
- * auth-design.md §12-4). {@code createdAt} 은 JPA Auditing 이 채우고 {@code TimeConfig} 의
- * {@code Clock} 빈을 보지 않으므로, <b>저장된 행의 createdAt 과의 상대 비교</b>로만 검증한다.
- *
- * <p>{@code JpaAuditingConfig} 를 명시적으로 import 하는 이유: 모듈 슬라이스는 {@code auth} 만
- * 부팅하므로 {@code config} 모듈의 {@code @EnableJpaAuditing} 이 올라오지 않는다. {@code Clock} 은
- * 중첩 {@code @TestConfiguration} 으로 공급한다(v4 — {@code AuthService}·{@code JwtSupport} 가
- * 주입받는다) — {@code TimeConfig} 를 import 하면 Modulith 의 빈 선별기가 타 모듈 {@code @Bean}
- * 팩토리 정의를 해석하지 못해 컨텍스트가 죽는다(라운드 1 실측).
- *
- * <p><b>(v2) 저장 값은 익명키 원문이 아니라 해시다</b>(§3-2, blockers B4). 그래서 저장된 행을 찾을 때는
- * {@code findByAnonymousKeyHash(hasher.hash(원문))} 으로 찾는다 — 원문으로는 찾을 수 없고,
- * 찾을 수 있으면 그게 U6 위반이다.
- */
 @ActiveProfiles("test")
 @ApplicationModuleTest
 @Import({JpaAuditingConfig.class, AuthServiceTest.TestClockConfig.class})
 class AuthServiceTest {
 
-	/** 운영 {@code TimeConfig} 와 같은 KST 시스템 시계 — 클래스 javadoc 의 Modulith 제약 때문에 여기 둔다. */
 	@TestConfiguration
 	static class TestClockConfig {
 
@@ -74,11 +47,9 @@ class AuthServiceTest {
 	@Autowired
 	private RefreshTokenRepository refreshTokenRepository;
 
-	/** 실제 빈을 그대로 쓴다 — 테스트가 별도 해시 구현을 갖게 되면 계약이 두 벌이 된다. */
 	@Autowired
 	private AnonymousKeyHasher hasher;
 
-	/** access 토큰 검증도 실제 빈으로 한다 — 서명 키·클레임 규격이 발급과 같은 한 벌이어야 한다. */
 	@Autowired
 	private JwtSupport jwtSupport;
 
@@ -88,12 +59,10 @@ class AuthServiceTest {
 		userRepository.deleteAll();
 	}
 
-	/** 저장된 행은 <b>해시로만</b> 찾을 수 있다(§3-2). */
 	private User storedFor(String rawKey) {
 		return userRepository.findByAnonymousKeyHash(hasher.hash(rawKey)).orElseThrow();
 	}
 
-	/** U2 · §6-4 판정 매트릭스 "최초 등록" — 조회 없음 → 삽입 → newUser=true (v4 — login 이 그 자리다) */
 	@Test
 	@DisplayName("처음 보는 익명키는 사용자로 등록되고 newUser=true 다")
 	void 최초_등록() {
@@ -113,11 +82,6 @@ class AuthServiceTest {
 		assertThat(login.userId()).isEqualTo(stored.getId());
 	}
 
-	/**
-	 * U7 · auth.md §5-1 — <b>부트스트랩이 곧 로그인이다.</b> 성공한 login 은 access(JWT)·refresh 를
-	 * 함께 준다. access 의 {@code sub} 는 그 사용자의 userId 여야 한다 — 다른 값이면 게이트(U8)가
-	 * 남의 신원으로 요청을 통과시킨다.
-	 */
 	@Test
 	@DisplayName("login 은 access·refresh 를 발급하고 access 의 주체는 그 사용자다")
 	void U7_토큰_발급() {
@@ -134,13 +98,6 @@ class AuthServiceTest {
 			.isEqualTo(login.userId());
 	}
 
-	/**
-	 * U6 · auth-design.md §3-2 (v2, blockers B4) — <b>DB 에 익명키 원문이 존재하지 않는다.</b>
-	 *
-	 * <p>이것이 B4 해소의 뿌리다. 저장 값이 해시라서 UNIQUE 위반 메시지에도 해시만 실린다
-	 * (그 결과는 {@code AuthConcurrencyTest} 의 로그 단언이 본다). 여기서는 <b>저장 자체</b>를 본다 —
-	 * 컬럼에 원문이 다시 들어오는 변경은 그 자체로 U6 위반이므로 여기서 먼저 빨개져야 한다.
-	 */
 	@Test
 	@DisplayName("저장되는 값은 익명키 원문이 아니라 SHA-256 해시다 — 원문으로는 조회조차 되지 않는다")
 	void 저장_값에_익명키_원문이_없다() {
@@ -161,11 +118,6 @@ class AuthServiceTest {
 			.isEmpty();
 	}
 
-	/**
-	 * U2 멱등 — auth.md §3 U2 "같은 익명키로 몇 번을 호출해도 사용자는 하나다".
-	 * <b>(v4) 단 토큰은 호출마다 새로 발급된다</b>(auth.md §5-2 "재호출 = 재로그인") — 기존 refresh 는
-	 * 폐기하지 않는다(다기기 정상 케이스와 구분 불가). 멱등은 <b>사용자 축</b>이지 토큰 축이 아니다.
-	 */
 	@Test
 	@DisplayName("같은 익명키로 여러 번 호출해도 사용자는 하나이고, 토큰만 호출마다 새로 발급된다")
 	void 멱등하다() {
@@ -199,11 +151,6 @@ class AuthServiceTest {
 				.isFalse());
 	}
 
-	/**
-	 * auth.md §5-2 — {@code registeredAt} 은 "이 사용자가 처음 등록된 시각"이고
-	 * auth-design.md §3 이 그 값을 {@code BaseTimeEntity.createdAt} 으로 확정했다.
-	 * B3 대로 <b>절대값이 아니라 저장된 행과의 상대 비교</b>로 본다.
-	 */
 	@Test
 	@DisplayName("registeredAt 은 저장된 행의 createdAt 이다 — 별도 시각을 만들어 내지 않는다")
 	void registeredAt_은_행의_createdAt_이다() {
@@ -221,7 +168,6 @@ class AuthServiceTest {
 		assertThat(reread.registeredAt()).isEqualTo(storedCreatedAt);
 	}
 
-	/** U2 — 익명키가 다르면 다른 사용자다. 멱등은 "익명키당" 이다(auth-design.md §3 UNIQUE) */
 	@Test
 	@DisplayName("익명키가 다르면 각각 별도의 사용자로 등록된다")
 	void 익명키가_다르면_사용자도_다르다() {
@@ -239,12 +185,6 @@ class AuthServiceTest {
 		assertThat(userRepository.findByAnonymousKeyHash(hasher.hash(two))).isPresent();
 	}
 
-	/**
-	 * U5 · auth-design.md §3-2 — 형식 검증을 통과한 <b>상한 길이</b> 원문도 끝까지 등록된다.
-	 *
-	 * <p>(v2) 저장되는 것은 길이 64 해시라 <b>원문 길이가 컬럼을 넘길 일이 없다.</b>
-	 * §12-2 가 해소된 것이 이 지점이다 — 입력이 아무리 길어도 저장 길이는 고정이다.
-	 */
 	@Test
 	@DisplayName("상한 길이 익명키도 등록되고, 저장 길이는 원문 길이와 무관하게 64다")
 	void 상한_길이_익명키도_등록된다() {
@@ -260,13 +200,6 @@ class AuthServiceTest {
 		assertThat(key.length()).isNotEqualTo(stored.getAnonymousKeyHash().length());
 	}
 
-	/**
-	 * U4 — 등록·식별은 <b>모듈 공개 API</b> 로 제공된다(auth.md §3 U4 · §5-3).
-	 * 집계 모듈 {@code bootstrap} 이 이 시그니처로 부트스트랩 응답을 조립한다(auth-design.md §14-2).
-	 *
-	 * <p>(v4) v3 의 {@code Registration}(3필드)이 {@code LoginResult}(5필드 — +access·refresh)로
-	 * 확장됐다(§14-2). 필드가 늘거나 {@code userId} 가 원시 타입으로 바뀌면 여기서 먼저 빨개져야 한다.
-	 */
 	@Test
 	@DisplayName("LoginResult 는 newUser·registeredAt·userId·accessToken·refreshToken 이고 userId 는 저장 행의 id 다")
 	void 모듈_공개_API_계약() {

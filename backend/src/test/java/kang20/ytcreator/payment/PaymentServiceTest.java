@@ -31,15 +31,6 @@ import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * 지급 흐름 — {@code PaymentPurchasePort.grant} (new-domain/payment.md 결제와 지급 · 선점 · 멱등).
- *
- * <p>토스만 목으로 막고 <b>DB 는 진짜를 쓴다</b> — 멱등의 근거가 {@code UNIQUE(order_id)} 이므로
- * 저장소를 목으로 바꾸면 검증 대상이 통째로 사라진다.
- *
- * <p>⚠️ <b>{@code @Transactional} 을 붙이지 않는다.</b> 붙이면 {@code REQUIRES_NEW} 쓰기와 경쟁
- * 재조회가 테스트 트랜잭션에 흡수돼 설계 전제를 검증하지 못한다.
- */
 @ActiveProfiles("test")
 @ApplicationModuleTest
 @Import(JpaAuditingConfig.class)
@@ -50,7 +41,6 @@ class PaymentServiceTest {
 	private static final UserId OWNER = new UserId(42L);
 	private static final UserId OTHER = new UserId(99L);
 
-	/** {@code application-test.yml} 의 ytcreator.payment.*.sku 와 같아야 한다. */
 	private static final String ONE_TIME_SKU = "test.one-time";
 	private static final String SUBSCRIPTION_SKU = "test.subscription";
 
@@ -67,8 +57,6 @@ class PaymentServiceTest {
 	void 원장을_비운다() {
 		orderRepository.deleteAll();
 	}
-
-	// ── 지급 ────────────────────────────────────────────────────────────
 
 	@Test
 	@DisplayName("결제된 주문은 원장에 남고 상품 유형을 돌려준다")
@@ -93,10 +81,6 @@ class PaymentServiceTest {
 		assertThat(paymentPurchase.grant(OWNER, ORDER).productType()).isEqualTo(ProductType.SUBSCRIPTION);
 	}
 
-	/**
-	 * "결제는 됐고 지급이 실패한 상태" — 우리는 지급 대상으로 본다.
-	 * ⚠️ 문서 근거가 없는 판단이라 뒤집힐 수 있다. 뒤집히면 이 테스트가 먼저 빨개진다.
-	 */
 	@Test
 	@DisplayName("PAYMENT_COMPLETED 도 지급 대상이다")
 	void 지급_대상_판정() {
@@ -105,12 +89,6 @@ class PaymentServiceTest {
 		assertThat(paymentPurchase.grant(OWNER, ORDER).granted()).isTrue();
 	}
 
-	// ── 멱등 ────────────────────────────────────────────────────────────
-
-	/**
-	 * 🔴 중복 요청은 오류가 아니라 정상이다. 오류로 만들면 클라이언트가 미결을 닫지 못해
-	 * 복원 흐름 자체가 깨진다.
-	 */
 	@Test
 	@DisplayName("같은 주문을 다시 요청해도 성공이고, 원장은 한 번만 늘어난다")
 	void 멱등() {
@@ -125,7 +103,6 @@ class PaymentServiceTest {
 		assertThat(orderRepository.count()).isEqualTo(1);
 	}
 
-	/** 이미 지급된 주문이면 토스를 부르지 않는다 — 30초 예산을 아끼는 선판정이다. */
 	@Test
 	@DisplayName("이미 지급된 주문은 토스를 부르지 않는다")
 	void 재요청은_토스를_부르지_않는다() {
@@ -138,9 +115,6 @@ class PaymentServiceTest {
 		verify(tossOrderClient, never()).statusOf(any());
 	}
 
-	// ── 선점 ────────────────────────────────────────────────────────────
-
-	/** 🔴 주문 식별자를 아는 것 = 미지급 주문을 가로챌 수 있는 것. 소유자는 바뀌지 않는다. */
 	@Test
 	@DisplayName("남의 주문에 지급을 요청하면 거부된다 — 선점 위반")
 	void 선점_위반() {
@@ -155,7 +129,6 @@ class PaymentServiceTest {
 			.isEqualTo(OWNER);
 	}
 
-	/** ⚠️ 예외 메시지에 주문 식별자 원문이 실리면 안 된다. */
 	@Test
 	@DisplayName("거부 메시지에 주문 식별자 원문이 실리지 않는다")
 	void 주문_식별자_비노출() {
@@ -165,8 +138,6 @@ class PaymentServiceTest {
 		assertThatThrownBy(() -> paymentPurchase.grant(OTHER, ORDER))
 			.hasMessageNotContaining(RAW);
 	}
-
-	// ── 지급 거부 ────────────────────────────────────────────────────────
 
 	@ParameterizedTest(name = "{0} → {1}")
 	@CsvSource({
@@ -188,7 +159,6 @@ class PaymentServiceTest {
 		assertThat(orderRepository.count()).isZero();
 	}
 
-	/** 봉투 실패·전송 실패·타임아웃·비활성 — 전부 "확인하지 못했다"다. 지급하지 않는다. */
 	@Test
 	@DisplayName("주문을 확인하지 못하면 지급하지 않는다")
 	void 검증_실패() {
@@ -201,7 +171,6 @@ class PaymentServiceTest {
 		assertThat(orderRepository.count()).isZero();
 	}
 
-	/** 🔴 카탈로그에 없는 상품 코드는 남의 상품이다 — 결제됐다고 해서 우리가 지급하지 않는다. */
 	@Test
 	@DisplayName("모르는 상품 코드는 지급하지 않는다")
 	void 남의_상품() {
@@ -214,7 +183,6 @@ class PaymentServiceTest {
 		assertThat(orderRepository.count()).isZero();
 	}
 
-	/** 상품 코드가 없는 응답(상태를 확정하지 못한 경우)도 같은 경로다. */
 	@Test
 	@DisplayName("상품 코드가 없으면 지급하지 않는다")
 	void 상품_코드_없음() {
@@ -226,12 +194,6 @@ class PaymentServiceTest {
 			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.PAY_004);
 	}
 
-	// ── 입력 방어 ────────────────────────────────────────────────────────
-
-	/**
-	 * 빈 주문 식별자는 <b>포트에 닿지도 못한다</b> — 인자를 만드는 순간 걸린다.
-	 * 서비스가 방어하던 것을 타입이 가져갔다(값 규칙은 {@link OrderIdTest} 가 본다).
-	 */
 	@Test
 	@DisplayName("빈 주문 식별자로는 인자 자체를 만들 수 없다 — 토스는 부를 일이 없다")
 	void 빈_주문_식별자() {

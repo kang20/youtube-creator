@@ -14,10 +14,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.events.ApplicationModuleListener;
 
-/**
- * 아웃박스 리스너 — 의뢰를 포트로 넘기고, 실패를 삼키지 않는다(subtitle-v3 워커 의뢰 사건).
- * 아웃박스에 남는 근거는 {@code @ApplicationModuleListener}(트랜잭셔널 계열)라는 사실 자체다.
- */
 class WorkRequestedListenerTest {
 
 	private static final WorkRequested REQUESTED = new WorkRequested(7L, WorkStage.SCRIPT);

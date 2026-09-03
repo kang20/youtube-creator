@@ -11,17 +11,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * 주문 식별자 값 객체 계약 (new-domain/payment.md 주문 애그리거트).
- *
- * <p>덮는 것: 값 동등성 · <b>final 선언</b>(ValueObject strict equals 전제) ·
- * <b>toString 마스킹</b>(U14 비노출의 구조적 방어) · 빈 값 거부.
- */
 class OrderIdTest {
 
 	private static final String RAW = "13c9a1ff-2baa-4495-bbfa-a0826ba8c7c0";
 
-	/** ValueObject 는 strict getClass 비교라 하위 타입이 끼면 동등성이 비대칭으로 깨진다. */
 	@Test
 	@DisplayName("OrderId 는 final 이다 — 하위 타입 금지")
 	void final_선언() {
@@ -42,10 +35,6 @@ class OrderIdTest {
 		assertThat(new OrderId(RAW).raw()).isEqualTo(RAW);
 	}
 
-	/**
-	 * 🔴 U14 의 구조적 방어. 마스킹을 호출자의 선택에 맡기면 한 번만 잊어도 원문이 로그로 샌다.
-	 * 이 단언이 깨지면 "주문 식별자를 아는 것 = 미지급 주문을 가로챌 수 있는 것"이 현실이 된다.
-	 */
 	@Test
 	@DisplayName("toString 은 마스킹된 값이다 — 원문이 로그·예외 메시지로 새지 않는다")
 	void toString_은_마스킹이다() {
@@ -63,7 +52,6 @@ class OrderIdTest {
 		assertThat(new OrderId("abcdefgh").masked()).isEqualTo("abcd***");
 	}
 
-	/** 짧은 입력에서 원문이 통째로 드러나면 안 된다 — 어떤 입력에서도 새지 않아야 한다. */
 	@ParameterizedTest(name = "\"{0}\" → 전부 가린다")
 	@ValueSource(strings = {"a", "ab", "abc"})
 	@DisplayName("4자 미만은 전부 가린다")

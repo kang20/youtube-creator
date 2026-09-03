@@ -25,31 +25,15 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * S12 — {@code POST /api/v1/webhooks/toss/subscription} HTTP 계약 + REST Docs
- * (payment.md 참고자료 ② 페이로드 · ④-1 "진위 검증 수단은 Basic Auth 뿐").
- *
- * <p><b>인증 게이트 밖이다</b>(SecurityConfig PUBLIC_PATHS) — 토스는 우리 JWT 를 보내지 않는다.
- * 대신 모듈이 Basic Auth 로 다시 막는다. 같은 Authorization 헤더를 쓰지만 스킴이 Bearer 가 아니다.
- *
- * <p>목은 <b>시크릿 값에 따라</b> 다르게 답한다 — 헤더 유무·값 불일치가 같은 401 로 수렴하는지를
- * 컨트롤러 계약으로 확인하기 위해서다(헤더 누락이 400 이 되면 안 된다).
- */
 @WebMvcTest(SubscriptionWebhookController.class)
 class SubscriptionWebhookControllerTest extends ControllerTest {
 
 	private static final String WEBHOOK_PATH = "/api/v1/webhooks/toss/subscription";
 
-	/**
-	 * 콘솔 "Basic Auth 헤더" 에 등록하는 값. <b>base64({@code user:pass}) 형태여야 한다</b> —
-	 * 서버는 문자열 대조만 하지만, REST Docs 의 curl 스니펫이 이 값을 디코딩해 {@code -u} 로 옮긴다.
-	 */
 	private static final String SECRET = "eXRjcmVhdG9yOnRlc3Qtd2ViaG9vay1zZWNyZXQ=";
 
-	/** 토스가 실제로 보내는 헤더 모양 — 콘솔에 등록한 값이 Basic 스킴으로 실려 온다. */
 	private static final String HEADER = "Basic " + SECRET;
 
-	/** 참고자료 ② 의 페이로드 예시 그대로. */
 	private static final String STATUS_CHANGED_BODY = """
 		{
 		  "eventType": "subscription.status_changed",
@@ -65,7 +49,6 @@ class SubscriptionWebhookControllerTest extends ControllerTest {
 		}
 		""";
 
-	/** 콜백 URL 등록 검증 — <b>이걸 정상 수신해야 URL 이 활성화된다</b>. 본문에 orderId 가 없다. */
 	private static final String REGISTRATION_BODY = """
 		{
 		  "eventType": "callback.registration_verification",
@@ -86,12 +69,6 @@ class SubscriptionWebhookControllerTest extends ControllerTest {
 		}).when(subscriptionStatusPort).handleWebhook(any(), any(WebhookEvent.class));
 	}
 
-	/**
-	 * S12 — 시크릿이 맞으면 수신하고 <b>204</b> 로 답한다. 본문이 없다 — 토스가 읽을 것이 없다.
-	 *
-	 * <p>🔴 <b>검증을 통과한 뒤에는 반영에 실패해도 204 다</b>(재전송 정책이 없어 실패를 알려봐야
-	 * 다시 오지 않는다). 그 규칙은 서비스가 지키고, 여기서는 성공 계약만 문서로 고정한다.
-	 */
 	@Test
 	@DisplayName("S12 — 시크릿이 맞으면 204 로 수신한다 — 본문 없음")
 	void 웹훅_수신() throws Exception {
@@ -136,7 +113,6 @@ class SubscriptionWebhookControllerTest extends ControllerTest {
 		verify(subscriptionStatusPort).handleWebhook(any(), any(WebhookEvent.class));
 	}
 
-	/** S12 — 등록 검증 이벤트는 {@code orderId}·스냅샷 없이 온다. 본문 처리 없이 204 로 답해야 URL 이 활성화된다. */
 	@Test
 	@DisplayName("S12 — 콜백 URL 등록 검증 이벤트도 204 로 수신한다")
 	void 등록_검증_수신() throws Exception {
@@ -152,7 +128,6 @@ class SubscriptionWebhookControllerTest extends ControllerTest {
 					fieldWithPath("eventVersion").description("고정 <code>1.0</code>"))));
 	}
 
-	/** S12 — 시크릿이 다르면 401 이다. 위조 웹훅을 처리하지 않는 1차 방어다. */
 	@Test
 	@DisplayName("S12 — 시크릿이 다르면 401 AUTH_002 로 거부한다")
 	void 시크릿_불일치() throws Exception {
@@ -172,10 +147,6 @@ class SubscriptionWebhookControllerTest extends ControllerTest {
 					fieldWithPath("message").description("안내 문구"))));
 	}
 
-	/**
-	 * S12 — 🔴 <b>헤더가 아예 없어도 401 이다.</b> {@code required = false} 로 받는 이유가 이것이다 —
-	 * 필수 헤더로 두면 스프링이 <b>400</b> 을 내고, 인증 실패와 형식 오류가 한 축으로 뭉개진다.
-	 */
 	@Test
 	@DisplayName("S12 — Authorization 헤더가 없으면 400 이 아니라 401 AUTH_002 다")
 	void 시크릿_누락() throws Exception {

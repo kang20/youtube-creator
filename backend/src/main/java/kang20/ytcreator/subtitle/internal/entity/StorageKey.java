@@ -18,7 +18,6 @@ public record StorageKey(String value) {
 		return of(jobId, "source");
 	}
 
-	/** 워커가 아니라 서버가 위치를 정한다 — 위치가 결정적이어야 존재를 물을 수 있고, 존재가 곧 멱등 키다. */
 	public static StorageKey scriptOf(JobId jobId) {
 		return of(jobId, "script");
 	}
@@ -31,7 +30,6 @@ public record StorageKey(String value) {
 		return new StorageKey("jobs/" + jobId.longValue() + "/" + name);
 	}
 
-	/** 위치는 밖으로 내려주지 않는다 — 로그·예외 메시지에 원문이 실리지 않게 여기서 강제한다. */
 	@Override
 	public String toString() {
 		return "StorageKey(***)";

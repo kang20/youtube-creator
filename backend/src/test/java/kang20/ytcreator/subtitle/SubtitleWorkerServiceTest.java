@@ -37,11 +37,6 @@ import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * 워커 완료 통지({@code SubtitleWorkerPort}) — 같은 단계의 통지가 두 번 와도 상태는 한 번만
- * 나아간다(subtitle-v3 작업 규칙). 재시도·재전송·재개가 <b>정상적으로</b> 중복을 만든다.
- * 통지는 힌트고 근거는 산출물이다 — 서버가 정한 위치에 실물이 없으면 거절한다(v3).
- */
 @ActiveProfiles("test")
 @ApplicationModuleTest
 @Import({JpaAuditingConfig.class, SubtitleTestClock.class})
@@ -89,9 +84,6 @@ class SubtitleWorkerServiceTest {
 		return jobRepository.findById(job.getId()).orElseThrow();
 	}
 
-	// ── attachScript ───────────────────────────────────────────────────
-
-	/** REQ-41 · REQ-73 · REQ-118 — 내용 검사 없이 접수한다(0행 대본도 성공). 이용권을 다시 묻지 않는다 */
 	@Test
 	@DisplayName("대본 통지로 작업 번호의 대본 위치가 달리고 사용자 확정 대기로 넘어간다")
 	void 대본_통지로_대본이_달리고_사용자_확정_대기로_넘어간다() {
@@ -105,7 +97,6 @@ class SubtitleWorkerServiceTest {
 		verify(paymentUsagePort, never()).consume(any(UserId.class), any());
 	}
 
-	/** 통지는 힌트다 — 실물 없이 대기 구간에 들어가면 깨진 편집 화면을 보다 24시간 뒤 방치로 닫힌다(v3) */
 	@Test
 	@DisplayName("대본 실물이 없는 완료 통지는 거절되고 상태는 그대로다")
 	void 대본_실물이_없는_완료_통지는_거절되고_상태는_그대로다() {
@@ -120,7 +111,6 @@ class SubtitleWorkerServiceTest {
 		assertThat(reload(job).getScript()).isNull();
 	}
 
-	/** REQ-87 · REQ-136 · REQ-171 — 중복 통지는 오류가 아니라 현재 상태다. 결과물은 한 벌이다 */
 	@Test
 	@DisplayName("중복 대본 통지는 한 번만 나아간다")
 	void 중복_대본_통지는_한_번만_나아간다() {
@@ -134,7 +124,6 @@ class SubtitleWorkerServiceTest {
 		assertThat(reload(job).getLastTransitionedAt()).isEqualTo(firstTransition);
 	}
 
-	/** REQ-147 — 의뢰한 적 없는 완료 통지는 거부된다 */
 	@Test
 	@DisplayName("의뢰한 적 없는 대본 통지는 거부된다")
 	void 의뢰한_적_없는_대본_통지는_거부된다() {
@@ -145,7 +134,6 @@ class SubtitleWorkerServiceTest {
 			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SUBTITLE_002);
 	}
 
-	/** REQ-111 — 지난 단계·닫힌 작업의 통지는 무시하고 현재 상태를 돌려준다 */
 	@ParameterizedTest
 	@EnumSource(value = JobStatus.class, names = {"REQUEST_SUBTITLE", "FAILURE"})
 	@DisplayName("지난 단계·닫힌 작업의 대본 통지는 무시된다")
@@ -155,7 +143,6 @@ class SubtitleWorkerServiceTest {
 		assertThat(subtitleWorkerPort.attachScript(job.getId())).isEqualTo(status);
 	}
 
-	/** REQ-187 — 워커 통지도 없는 작업이면 같은 답이다(쓰기 빈의 find 방어선) */
 	@Test
 	@DisplayName("없는 작업의 통지는 없는 작업 답이다")
 	void 없는_작업의_통지는_없는_작업_답이다() {
@@ -164,9 +151,6 @@ class SubtitleWorkerServiceTest {
 			.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SUBTITLE_001);
 	}
 
-	// ── attachSubtitle ─────────────────────────────────────────────────
-
-	/** REQ-66 · REQ-129 · REQ-131 · REQ-180 — 완료로 닫히면 commit 으로 소모를 확정한다. 멱등 키는 jobRef 다 */
 	@Test
 	@DisplayName("자막 통지는 완료로 닫고 소모를 확정한다")
 	void 자막_통지는_완료로_닫고_소모를_확정한다() {
@@ -180,7 +164,6 @@ class SubtitleWorkerServiceTest {
 		verify(paymentUsagePort).commit(ref(job));
 	}
 
-	/** 자막도 같다 — 실물 없는 완료는 완료가 아니고, 소모 확정도 일어나지 않는다(v3) */
 	@Test
 	@DisplayName("자막 실물이 없는 완료 통지는 거절되고 소모도 확정되지 않는다")
 	void 자막_실물이_없는_완료_통지는_거절되고_소모도_확정되지_않는다() {
@@ -195,7 +178,6 @@ class SubtitleWorkerServiceTest {
 		verify(paymentUsagePort, never()).commit(any());
 	}
 
-	/** REQ-70 · REQ-136 — 중복 통지가 소모 확정을 반복하면 무료 이용권이 샌다 */
 	@Test
 	@DisplayName("중복 자막 통지에 소모 확정은 두 번 불리지 않는다")
 	void 중복_자막_통지에_소모_확정은_두_번_불리지_않는다() {
@@ -208,7 +190,6 @@ class SubtitleWorkerServiceTest {
 		verify(paymentUsagePort, times(1)).commit(ref(job));
 	}
 
-	/** REQ-147 — 산출을 의뢰한 적 없는 자막 통지는 거부된다 */
 	@ParameterizedTest
 	@EnumSource(value = JobStatus.class, names = {"CREATED", "COMPLETED_SCRIPT"})
 	@DisplayName("의뢰 전 자막 통지는 거부된다")
@@ -221,7 +202,6 @@ class SubtitleWorkerServiceTest {
 		verify(paymentUsagePort, never()).commit(any());
 	}
 
-	/** REQ-111 — 닫힌 작업의 통지는 무시되고, 소모 확정도 일어나지 않는다 */
 	@Test
 	@DisplayName("닫힌 작업의 자막 통지는 무시되고 확정도 없다")
 	void 닫힌_작업의_자막_통지는_무시되고_확정도_없다() {
@@ -231,7 +211,6 @@ class SubtitleWorkerServiceTest {
 		verify(paymentUsagePort, never()).commit(any());
 	}
 
-	/** REQ-69 — 확정 호출이 유실되면 조용히 넘어가지 않는다 — 전이와 한 트랜잭션이라 함께 되돌아간다 */
 	@Test
 	@DisplayName("소모 확정 실패는 완료 전이를 되돌린다 — 재전송이 다시 기회를 가진다")
 	void 소모_확정_실패는_완료_전이를_되돌린다() {

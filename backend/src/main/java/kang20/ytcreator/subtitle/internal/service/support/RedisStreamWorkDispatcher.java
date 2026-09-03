@@ -11,7 +11,6 @@ import kang20.ytcreator.shared.support.Support;
 import kang20.ytcreator.subtitle.internal.entity.JobId;
 import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 
-/** 작업 큐(Redis Stream) XADD — 워커가 위치 규칙을 따로 알지 않게 입력·산출물 위치까지 실어 보낸다. */
 @Support
 @ConditionalOnProperty(name = "ytcreator.subtitle.queue.enabled", havingValue = "true")
 public class RedisStreamWorkDispatcher implements WorkDispatcher {

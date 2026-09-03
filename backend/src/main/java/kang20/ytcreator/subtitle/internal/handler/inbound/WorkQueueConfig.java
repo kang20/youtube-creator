@@ -17,10 +17,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.stream.StreamMessageListenerContainer;
 import org.springframework.data.redis.stream.StreamMessageListenerContainer.StreamReadRequest;
 
-/**
- * 완료 큐 소비자 그룹 조립 — 큐 설정이 켜졌는데 Redis 에 닿지 못하면 기동 실패다(fail-fast).
- * 조용히 뜨면 완료 통지를 아무도 읽지 않아 모든 작업이 30분 뒤 조정 배치에만 기댄다.
- */
 @Configuration
 @ConditionalOnProperty(name = "ytcreator.subtitle.queue.enabled", havingValue = "true")
 class WorkQueueConfig {

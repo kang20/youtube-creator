@@ -19,10 +19,6 @@ import org.springframework.data.redis.connection.stream.ReadOffset;
 import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-/**
- * 완료 큐 소비자 그룹 조립 — 큐가 켜졌는데 Redis 에 닿지 못하면 기동 실패(fail-fast)이고,
- * 재기동(블루-그린 두 번째 부팅)에서 이미 있는 그룹은 오류가 아니다(subtitle-v3 완료 큐).
- */
 class WorkQueueConfigTest {
 
 	private static final String DONE_STREAM = "test:subtitle:done";

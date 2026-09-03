@@ -9,15 +9,6 @@ import org.hibernate.type.descriptor.java.MutabilityPlan;
 import org.hibernate.type.descriptor.jdbc.JdbcType;
 import org.hibernate.type.descriptor.jdbc.JdbcTypeIndicators;
 
-/**
- * {@link LongTypeIdentifier} 계열의 Hibernate 매핑 어댑터 — DB 컬럼은 항상 BIGINT 다.
- * 규칙 정본: docs/rule/architecture.md "타입화된 기본키". 검증 환경: Boot 4 / Hibernate 7(youngZZ 선례).
- *
- * <p>엔티티 필드에 {@code @JavaType(구체JavaType.class)} 로 붙인다 — 연관관계가 아니라 값 컬럼이다.
- *
- * <p>⚠️ {@code wrap}/{@code fromString} 은 <b>리플렉션으로 {@code (Long)} 생성자</b>를 부른다 —
- * 컴파일 타임에 안 잡히므로 구체 ID 의 생성자 계약은 테스트가 지킨다(payment-design.md §10).
- */
 public abstract class LongTypeIdentifierJavaType<T extends LongTypeIdentifier> extends AbstractClassJavaType<T> {
 
 	protected LongTypeIdentifierJavaType(Class<T> clazz) {

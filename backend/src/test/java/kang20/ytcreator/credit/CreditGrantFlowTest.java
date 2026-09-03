@@ -32,18 +32,11 @@ import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * C1·C2·C3·C4 — Order → Credit 이벤트 결합 (new-domain/payment.md 애그리거트 간 관계·멱등 규칙).
- *
- * <p>수신이 동기라 {@code grant} 반환 시점에 잔량이 확정돼 있다 — 비동기 대기가 필요 없고,
- * <b>잔량 그 자체가 발행 여부의 증거</b>다.
- */
 @ActiveProfiles("test")
 @ApplicationModuleTest(extraIncludes = "payment")
 @Import({JpaAuditingConfig.class, CreditGrantFlowTest.TestClockConfig.class})
 class CreditGrantFlowTest {
 
-	/** {@code TimeConfig} 직접 import 는 Modulith 빈 선별기를 죽인다(AuthServiceTest javadoc 실측). */
 	@TestConfiguration
 	static class TestClockConfig {
 
@@ -53,7 +46,6 @@ class CreditGrantFlowTest {
 		}
 	}
 
-	/** {@code application-test.yml} 의 ytcreator.payment.*.sku 와 같아야 한다. */
 	private static final String ONE_TIME_SKU = "test.one-time";
 	private static final String SUBSCRIPTION_SKU = "test.subscription";
 
@@ -75,9 +67,6 @@ class CreditGrantFlowTest {
 		orderRepository.deleteAll();
 	}
 
-	// ── C1 — 첫 지급 흐름 ───────────────────────────────────────────────
-
-	/** C1 — CONSUMABLE 지급 확정 → 잔량 1 (payment.md "지급하면 횟수권이 1 오른다") */
 	@Test
 	@DisplayName("단건 지급이 확정되면 그 사용자의 잔량 행이 1 로 생긴다")
 	void 단건_지급_첫_흐름() {
@@ -91,9 +80,6 @@ class CreditGrantFlowTest {
 			.isEqualTo(new Balance(1L));
 	}
 
-	// ── C2 — 두 번째 주문은 +1 ──────────────────────────────────────────
-
-	/** C2 — 다른 주문의 지급이 또 확정되면 기존 행이 +1 된다 (같은 사용자, 새 주문 = 새 지급) */
 	@Test
 	@DisplayName("다른 주문으로 또 지급되면 잔량이 1 오른다")
 	void 두_번째_주문_증가_흐름() {
@@ -107,9 +93,6 @@ class CreditGrantFlowTest {
 		assertThat(balanceOf(user).orElseThrow().getBalance()).isEqualTo(new Balance(2L));
 	}
 
-	// ── C3 — 재요청(replay) 멱등 ────────────────────────────────────────
-
-	/** C3 — 재요청은 다시 발행하지 않는다 → 잔량 불변 (payment.md 멱등 규칙) */
 	@Test
 	@DisplayName("같은 주문의 재요청은 성공으로 답하되 이벤트를 다시 발행하지 않고 잔량도 그대로다")
 	void 재요청_멱등() {
@@ -128,9 +111,6 @@ class CreditGrantFlowTest {
 			.isEqualTo(new Balance(1L));
 	}
 
-	// ── C4 — SUBSCRIPTION 은 발행하지 않는다 ────────────────────────────
-
-	/** C4 — 구독 지급은 이 이벤트를 발행하지 않는다 → 잔량 행 없음 */
 	@Test
 	@DisplayName("구독 지급은 이벤트를 발행하지 않고 잔량 행도 생기지 않는다")
 	void 구독_지급은_잔량_불변() {
@@ -143,8 +123,6 @@ class CreditGrantFlowTest {
 		assertThat(result.productType()).isEqualTo(ProductType.SUBSCRIPTION);
 		assertThat(balanceOf(user)).isEmpty();
 	}
-
-	// ── helpers ────────────────────────────────────────────────────────
 
 	private void 토스가_답한다(OrderStatus status, String sku) {
 		when(tossOrderClient.statusOf(any())).thenReturn(TossOrderStatus.of(status.name(), sku));

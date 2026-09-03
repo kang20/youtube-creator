@@ -19,16 +19,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * 주문 원장의 저장 계약 — <b>멱등의 근거가 코드가 아니라 DB 제약</b>임을 확인한다
- * (new-domain/payment.md 주문 애그리거트).
- *
- * <p>{@code JpaAuditingConfig} 를 명시적으로 import 하는 이유: 모듈 슬라이스는 {@code payment} 만
- * 부팅하므로 {@code config} 모듈의 {@code @EnableJpaAuditing} 이 올라오지 않는다.
- *
- * <p>⚠️ <b>{@code @Transactional} 을 붙이지 않는다.</b> 붙이면 UNIQUE 위반이 커밋 시점까지 밀리거나
- * 롤백 경계가 테스트 트랜잭션에 흡수돼, 지급 경로가 의존하는 "삽입하면 즉시 터진다"를 검증하지 못한다.
- */
 @ActiveProfiles("test")
 @ApplicationModuleTest
 @Import(JpaAuditingConfig.class)
@@ -42,7 +32,6 @@ class OrderPersistenceTest {
 	@Autowired
 	private OrderRepository orderRepository;
 
-	/** 트랜잭션을 열지 않으므로 롤백이 없다 — 앞 테스트가 남긴 행을 직접 치운다. */
 	@BeforeEach
 	void 원장을_비운다() {
 		orderRepository.deleteAll();
@@ -63,11 +52,6 @@ class OrderPersistenceTest {
 		assertThat(found.getProductType()).isEqualTo(ProductType.CONSUMABLE);
 	}
 
-	/**
-	 * 🔴 <b>이 테스트가 멱등 전체를 떠받친다.</b> 지급 경로는 "조회해서 없으면 삽입"이 아니라
-	 * 삽입을 시도하고 이 예외를 경쟁 판정으로 읽는다. 제약이 사라지면 같은 주문으로 이용권이
-	 * 두 번 지급된다 = 무료 이용권 유출.
-	 */
 	@Test
 	@DisplayName("같은 주문 식별자는 두 번 저장되지 않는다 — UNIQUE 가 멱등의 근거다")
 	void 주문_식별자는_유일하다() {
@@ -78,7 +62,6 @@ class OrderPersistenceTest {
 			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
-	/** 소유자가 달라도 마찬가지다 — 선점 판정 이전에 DB 가 먼저 거부한다. */
 	@Test
 	@DisplayName("소유자가 달라도 같은 주문 식별자는 거부된다")
 	void 다른_소유자의_같은_주문도_거부된다() {

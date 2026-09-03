@@ -28,7 +28,6 @@ import org.hibernate.annotations.JavaType;
 @NoArgsConstructor(access = PROTECTED)
 public class CreditBalance extends AggregateRootEntity<CreditBalance> {
 
-	/** 밖으로 나가지 않는 대리키 — 원시 {@code Long} 유지(architecture.md "타입화된 식별자"). */
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;

@@ -38,13 +38,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-/**
- * {@code /api/v1/jobs} 5개 엔드포인트의 HTTP 계약 + REST Docs — 상태값이 곧 프론트 화면
- * 분기라(subtitle-v3 작업 진행 상태) 성공·실패 응답을 모두 문서화한다(rest-docs.md).
- *
- * <p><b>인증 게이트 뒤다</b> — 모든 요청이 Bearer 를 싣는다. 토큰 없이 401 은 게이트의 계약이라
- * {@code SecurityGateTest} 가 본다.
- */
 @WebMvcTest(SubtitleJobController.class)
 class SubtitleJobControllerTest extends ControllerTest {
 
@@ -59,9 +52,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 	@MockitoBean
 	private SubtitleJobPort subtitleJobPort;
 
-	// ── POST /api/v1/jobs — 열기 ───────────────────────────────────────
-
-	/** REQ-109 — 이용 게이트를 통과하면 작업이 열리고 원본 업로드용 단명 링크가 온다 */
 	@Test
 	@DisplayName("열기는 200 으로 작업 번호와 업로드 링크를 답한다")
 	void 열기() throws Exception {
@@ -82,7 +72,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 						+ " `POST /api/v1/jobs/{jobId}/source` 로 수신 확인을 요청한다"))));
 	}
 
-	/** REQ-189 — 이용권 거부는 이 도메인의 코드가 아니라 결제 계열(PAY_001)이 그대로 답한다 */
 	@Test
 	@DisplayName("이용권이 없으면 403 PAY_001 이다 — 결제 계열의 코드가 그대로 온다")
 	void 열기_이용권_없음() throws Exception {
@@ -93,9 +82,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 			"PAY_001 — 이용 가능한 이용권이 없다. 결제 화면으로 유도한다. 작업은 태어나지 않았다");
 	}
 
-	// ── POST /api/v1/jobs/{jobId}/source — 원본 수신 확인 ──────────────
-
-	/** REQ-113 — 서버가 실물을 확인한 뒤에만 처리에 들어간다. 재요청도 같은 200 이다(멱등) */
 	@Test
 	@DisplayName("원본 수신 확인은 200 으로 다음 상태를 답한다 — 재요청도 같은 응답이다")
 	void 원본_수신() throws Exception {
@@ -112,7 +98,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 					.description("전이된 작업 상태. 이후 화면 갱신은 상태 조회(폴링)로 한다"))));
 	}
 
-	/** REQ-13 — 업로드가 확인되지 않으면 착수하지 않는다 */
 	@Test
 	@DisplayName("원본 실물이 확인되지 않으면 409 SUBTITLE_002 다")
 	void 원본_수신_업로드_미확인() throws Exception {
@@ -124,7 +109,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 			"SUBTITLE_002 — 지금 상태에서는 처리할 수 없다(원본 미확인·닫힌 작업). 업로드를 마친 뒤 다시 요청한다");
 	}
 
-	/** REQ-92 · REQ-187 — 없는 작업과 남의 작업은 같은 404 다. 존재 자체를 알려주지 않는다 */
 	@Test
 	@DisplayName("없는 작업·남의 작업은 404 SUBTITLE_001 하나다")
 	void 원본_수신_없는_작업() throws Exception {
@@ -136,9 +120,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 			"SUBTITLE_001 — 작업을 찾을 수 없다. 남의 작업도 같은 답이다(존재 비노출)");
 	}
 
-	// ── POST /api/v1/jobs/{jobId}/confirm — 확정 ───────────────────────
-
-	/** REQ-53 · REQ-122 — 확정은 멱등이다. 재요청은 오류가 아니라 현재 상태를 그대로 돌려받는다 */
 	@Test
 	@DisplayName("확정은 200 으로 다음 상태를 답한다 — 재요청도 같은 모양이다(멱등)")
 	void 확정() throws Exception {
@@ -156,7 +137,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 						+ " COMPLETED_SUBTITLE(빈 대본 건너뜀 완료). 재요청이면 현재 상태 그대로"))));
 	}
 
-	/** REQ-137 — 확정은 사용자 대기 구간(COMPLETED_SCRIPT)에서만 받는다 */
 	@Test
 	@DisplayName("대기 구간 밖의 확정은 409 SUBTITLE_002 다")
 	void 확정_대기_구간_밖() throws Exception {
@@ -168,9 +148,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 			"SUBTITLE_002 — 대본 확정을 기다리는 상태가 아니다. 상태를 조회해 화면을 갱신한다");
 	}
 
-	// ── GET /api/v1/jobs/{jobId} — 상태 조회 (폴링 대상) ────────────────
-
-	/** REQ-18 · REQ-120 — 대기 구간에서만 편집 링크가 열린다. 언제 물어도 즉시 현재 상태를 답한다 */
 	@Test
 	@DisplayName("조회는 200 으로 현재 상태를 답한다 — 대본 확정 대기면 편집 링크가 함께 온다")
 	void 조회_대기() throws Exception {
@@ -204,7 +181,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 						.description("자막 파일 형식 — 지금은 MARKDOWN 하나. subtitleUrl 이 있을 때만 온다"))));
 	}
 
-	/** REQ-35 — 완료 결과는 읽기 링크와 형식으로 받는다 */
 	@Test
 	@DisplayName("완료된 작업 조회는 자막 링크와 형식을 준다")
 	void 조회_완료() throws Exception {
@@ -221,7 +197,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 				requestPreprocessor(), responsePreprocessor()));
 	}
 
-	/** REQ-75 · REQ-190 — 처리 실패는 오류 응답이 아니라 200 의 상태와 사유다 */
 	@Test
 	@DisplayName("실패한 작업 조회는 오류가 아니라 200 으로 상태와 사유를 답한다")
 	void 조회_실패한_작업() throws Exception {
@@ -237,7 +212,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 				requestPreprocessor(), responsePreprocessor()));
 	}
 
-	/** REQ-92 · REQ-187 — 없는 작업 = 남의 작업. 응답 본문은 code·message 뿐이다(REQ-191) */
 	@Test
 	@DisplayName("없는 작업 조회는 404 SUBTITLE_001 이고 본문은 code·message 뿐이다")
 	void 조회_없는_작업() throws Exception {
@@ -249,9 +223,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 			"SUBTITLE_001 — 작업을 찾을 수 없다. 남의 작업도 같은 답이다(존재 비노출)");
 	}
 
-	// ── GET /api/v1/jobs — 목록 (복구 장치) ─────────────────────────────
-
-	/** REQ-95 · REQ-104 — 목록은 복구 장치다. 만료 작업도 "만료됨"으로 남는다 */
 	@Test
 	@DisplayName("목록은 최근 작업과 상태를 답한다 — 만료 작업도 사라지지 않는다")
 	void 목록() throws Exception {
@@ -276,7 +247,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 					fieldWithPath("jobs[].createdAt").description("작업 생성 시각(ISO-8601)"))));
 	}
 
-	/** REQ-97 · REQ-186 — 작업이 없는 것은 실패가 아니다 — 200 의 빈 배열이다 */
 	@Test
 	@DisplayName("작업이 없으면 200 의 빈 jobs 다 — 조회 실패와 모양이 다르다")
 	void 목록_빈_목록() throws Exception {
@@ -290,7 +260,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 				requestPreprocessor(), responsePreprocessor()));
 	}
 
-	/** REQ-97 · REQ-186 — 조회 실패는 500 이다. 빈 목록으로 그리면 사용자는 결과물을 잃었다고 판단한다 */
 	@Test
 	@DisplayName("목록 조회 실패는 빈 목록이 아니라 500 COMMON_002 다")
 	void 목록_조회_실패() throws Exception {
@@ -305,9 +274,6 @@ class SubtitleJobControllerTest extends ControllerTest {
 				requestPreprocessor(), responsePreprocessor()));
 	}
 
-	// ── helpers ────────────────────────────────────────────────────────
-
-	/** ⚠️ 모든 실패 응답이 {@code {code, message}} 뿐이다 — 저장소 키·접근 링크를 싣지 않는다(REQ-191). */
 	private void expectError(MockHttpServletRequestBuilder request, ResultMatcher expectedStatus,
 			ErrorCode errorCode, String snippet, String codeDescription) throws Exception {
 

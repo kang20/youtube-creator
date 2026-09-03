@@ -17,10 +17,6 @@ import kang20.ytcreator.subtitle.internal.entity.JobStatus;
 import kang20.ytcreator.subtitle.internal.entity.WorkStage;
 import kang20.ytcreator.subtitle.internal.port.SubtitleWorkerPort;
 
-/**
- * 완료 큐(Redis Stream) 소비자 — 메시지에는 작업 번호와 단계만 실린다. 산출물 위치는 서버가 이미 안다.
- * 처리 결과와 무관하게 ACK 한다: 통지는 힌트일 뿐이고, 놓친 완료는 조정 배치가 산출물로 회복한다.
- */
 @Component
 @ConditionalOnProperty(name = "ytcreator.subtitle.queue.enabled", havingValue = "true")
 public class WorkCompletionConsumer implements StreamListener<String, MapRecord<String, String, String>> {

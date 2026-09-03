@@ -28,13 +28,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * {@code POST /api/v1/payments/grant} HTTP 계약 + REST Docs — payment.md §5-4 ·
- * payment-design.md §11 스니펫 표({@code payment-grant} 외 5종).
- *
- * <p><b>인증 게이트 뒤다</b> — 모든 요청이 Bearer 를 싣는다. 토큰 없이 401 이 되는 것은
- * 게이트의 계약이라 {@code SecurityGateTest} 가 본다.
- */
 @WebMvcTest(PaymentGrantController.class)
 class PaymentGrantControllerTest extends ControllerTest {
 
@@ -47,10 +40,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 	@MockitoBean
 	private PaymentPurchasePort paymentPurchasePort;
 
-	/**
-	 * 🔴 <b>신규 지급과 재요청이 같은 200 이다</b> — 중복 호출은 장애가 아니라 정상 경로다
-	 * (콜백·미결 복원·네트워크 재시도가 전부 중복을 만든다). 프론트는 200 이면 콜백에 {@code true} 를 준다.
-	 */
 	@Test
 	@DisplayName("지급은 200 으로 무엇을 지급했는지 답한다 — 재요청도 같은 응답이다")
 	void 지급_성공() throws Exception {
@@ -77,7 +66,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 						.description("무엇을 지급했는지 — CONSUMABLE(횟수권) · SUBSCRIPTION(구독). 화면 분기용"))));
 	}
 
-	/** 주문이 아직 진행 중이다 — 잠시 후 다시 시도하면 되는 상태라 재시도를 막지 않는다. */
 	@Test
 	@DisplayName("결제가 확정되지 않은 주문은 409 PAY_002 다 — 잠시 후 재시도")
 	void 지급_실패_진행중() throws Exception {
@@ -87,7 +75,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 			"PAY_002 — 주문이 아직 진행 중이다. 잠시 후 반영된다고 안내하고 복원 흐름에 맡긴다");
 	}
 
-	/** 실패·환불된 주문 — <b>재시도해도 결과가 바뀌지 않는다.</b> */
 	@Test
 	@DisplayName("결제 실패·환불된 주문은 409 PAY_003 이다 — 재시도 금지")
 	void 지급_실패_미결제() throws Exception {
@@ -97,7 +84,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 			"PAY_003 — 결제가 완료되지 않았거나 환불된 주문이다. 재시도하지 않고 문의로 안내한다");
 	}
 
-	/** 주문 없음·타 미니앱 주문 — 우리 상품이 아니면 지급하지 않는다. */
 	@Test
 	@DisplayName("우리 주문이 아니면 404 PAY_004 다")
 	void 지급_실패_주문_없음() throws Exception {
@@ -107,10 +93,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 			"PAY_004 — 주문을 찾을 수 없거나 우리 미니앱의 주문이 아니다(모르는 상품 코드 포함)");
 	}
 
-	/**
-	 * 🔴 선점 위반 — 이미 남의 것이 된 주문이다. 소유자는 끝까지 클라이언트의 주장이므로
-	 * 이 코드는 보안 통제가 아니라 <b>먼저 온 쪽을 지키는 규칙</b>이다.
-	 */
 	@Test
 	@DisplayName("남의 주문에 지급을 요청하면 409 PAY_005 다 — 소유자는 바뀌지 않는다")
 	void 지급_실패_선점_위반() throws Exception {
@@ -120,7 +102,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 			"PAY_005 — 다른 사용자에게 귀속된 주문이다. 복원 중이면 조용히 건너뛴다");
 	}
 
-	/** 토스 응답 실패·타임아웃 — 우리 잘못이 아니고 사실을 확인하지 못한 것이다. */
 	@Test
 	@DisplayName("토스에 주문을 확인하지 못하면 502 PAY_006 이다 — 재시도 대상")
 	void 지급_실패_상류_장애() throws Exception {
@@ -130,7 +111,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 			"PAY_006 — 토스에 주문 상태를 확인하지 못했다(실패 응답·타임아웃). 재시도 대상이다");
 	}
 
-	/** 빈 orderId 는 형식 축이라 400 COMMON_001 이다 — 지급 판정(PAY_*)과 섞지 않는다. */
 	@Test
 	@DisplayName("orderId 가 비어 있으면 400 COMMON_001 이다")
 	void 지급_요청_검증() throws Exception {
@@ -147,7 +127,6 @@ class PaymentGrantControllerTest extends ControllerTest {
 			.thenThrow(new BusinessException(errorCode));
 	}
 
-	/** ⚠️ 모든 실패 응답이 {@code {code, message}} 뿐이다 — 주문 식별자를 되돌려주지 않는다(U14). */
 	private void expectError(org.springframework.test.web.servlet.ResultMatcher expectedStatus,
 			ErrorCode errorCode, String snippet, String codeDescription) throws Exception {
 

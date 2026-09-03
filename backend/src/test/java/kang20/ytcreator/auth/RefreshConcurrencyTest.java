@@ -33,24 +33,12 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/**
- * auth-design.md §14-4 동시성 — 같은 refresh 동시 N회 제출은 <b>정확히 1회만 성공</b>한다
- * (auth.md §5-5 "동시 갱신 경쟁은 한쪽만 성공"). §14-5 계획: "정확히 1회 성공, 활성 토큰 1+1개".
- *
- * <p>판정은 락이 아니라 <b>조건부 UPDATE({@code revoked_at IS NULL})의 영향 행 수</b>다 —
- * H2·MySQL 동일 동작이라 이 테스트가 운영 판정 코드를 그대로 검증한다.
- *
- * <p>⚠️ <b>비TX 멀티스레드다</b>(§14-5 "(비TX)") — 테스트가 트랜잭션을 열면 각 스레드의 판정
- * SELECT 가 스냅샷에 갇혀 경쟁이 재현되지 않는다({@code AuthConcurrencyTest} 와 같은 규율).
- * {@code Thread.sleep} 대신 배리어로 동시에 풀어 놓는다(docs/rule/testing.md).
- */
 @ActiveProfiles("test")
 @ApplicationModuleTest
 @Import({JpaAuditingConfig.class, RefreshConcurrencyTest.TestClockConfig.class})
 @TestPropertySource(properties = "spring.datasource.hikari.maximum-pool-size=40")
 class RefreshConcurrencyTest {
 
-	/** {@code TimeConfig} 를 직접 import 하면 Modulith 빈 선별기가 죽는다(AuthServiceTest javadoc). */
 	@TestConfiguration
 	static class TestClockConfig {
 
@@ -80,15 +68,6 @@ class RefreshConcurrencyTest {
 		userRepository.deleteAll();
 	}
 
-	/**
-	 * §14-4 · §14-5 — 같은 refresh 를 N개 스레드가 동시에 제출: <b>승자 정확히 1</b>, 패자는 전부
-	 * {@code AUTH_005}(부트스트랩 재로그인 — 비용 0). 끝난 뒤 원본 토큰은 폐기돼 있어야 한다.
-	 *
-	 * <p>⚠️ 행 개수의 강한 단언("활성 정확히 1+1")은 하지 않는다 — 패자가 승자 커밋 <b>이후에</b>
-	 * 판정 SELECT 를 하면 §14-3 재사용 감지 경로(전체 폐기)로 흘러 승자의 새 토큰까지 죽을 수 있다.
-	 * 이는 §14-3 의사코드가 명시한 순서의 귀결이고 사용자 피해도 재로그인뿐이라 수용 범위다.
-	 * 여기서 지켜야 할 불변식은 <b>"새 쌍을 받은 호출은 정확히 하나"</b>와 <b>"원본은 죽는다"</b>다.
-	 */
 	@Test
 	@DisplayName("같은 refresh 동시 N회 제출은 정확히 한 번만 성공하고 나머지는 전부 AUTH_005 다")
 	void 같은_refresh_동시_제출은_한쪽만_성공한다() throws Exception {
@@ -147,7 +126,6 @@ class RefreshConcurrencyTest {
 		assertThat(winner.refreshToken()).isNotBlank().isNotEqualTo(contested);
 	}
 
-	/** §14-4 전제 — 이 테스트 자체가 트랜잭션 밖이다(안이면 경쟁이 재현되지 않는다). */
 	@Test
 	@DisplayName("이 테스트는 트랜잭션 밖에서 refresh 를 부른다")
 	void 트랜잭션_밖에서_호출한다() {

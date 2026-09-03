@@ -9,10 +9,6 @@ import kang20.ytcreator.subtitle.internal.port.SubtitleDispatchPort;
 import kang20.ytcreator.subtitle.internal.port.SubtitleTimeoutPort;
 import lombok.RequiredArgsConstructor;
 
-/**
- * 배치 구동 어댑터 — 주기는 우리 재량이다. 마감은 상한 24h 대비 1시간, 재개는 임계 30분 대비 10분,
- * 재발행은 지연 1분 대비 1분이면 감지 지연이 최대 한 주기다.
- */
 @Component
 @RequiredArgsConstructor
 public class JobTimeoutScheduler {

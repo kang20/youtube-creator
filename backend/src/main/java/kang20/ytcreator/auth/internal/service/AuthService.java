@@ -21,17 +21,6 @@ import kang20.ytcreator.shared.exception.ErrorCode;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link AuthPort} 구현 — 로그인(등록 멱등 + 토큰 발급)과 refresh 회전. auth 모듈의 유일한
- * 오케스트레이터다. {@code internal.service} 라 밖에서 직접 참조할 수 없다 — 소비자는
- * {@link AuthPort} 로만 부른다(architecture.md "Port·Service·Support 규약").
- *
- * <p><b>support 를 참조하는 유일한 주인</b>이다 — {@code @Support} 부품({@link AnonymousKeyHasher}·
- * {@link UserWriter}·{@link JwtSupport}·{@link RefreshTokenWriter})은 이 클래스에서만 불린다.
- *
- * <p>익명키 형식 검증은 하지 않는다 — v4 에서 익명키 수신 지점은 부트스트랩뿐이고 U5 검증은
- * {@code BootstrapController} 가 한다(auth-design.md §14-2).
- */
 @Service
 public class AuthService implements AuthPort {
 
@@ -55,16 +44,6 @@ public class AuthService implements AuthPort {
 		this.clock = clock;
 	}
 
-	/**
-	 * 로그인 — 기존 register(멱등·경쟁 흡수, §5-1·§6-4) 뒤에 토큰 발급이 붙는다(§14-3).
-	 *
-	 * <p>⚠️ <b>{@code @Transactional} 을 붙이지 마라 — 의도적으로 없다.</b> 바깥 트랜잭션을 열면
-	 * MySQL 의 {@code REPEATABLE READ} 스냅샷에 갇혀 재조회가 경쟁자 행을 보지 못한다(§6-2 함정 ④).
-	 * <b>H2 에서는 재현되지 않고 운영 MySQL 에서만 터진다.</b> 같은 이유로 호출자도 트랜잭션 안에서
-	 * 부르면 안 된다. 불변식은 트랜잭션이 아니라 DB 의 UNIQUE 제약이 지킨다.
-	 *
-	 * @param anonymousKey 익명키 <b>원문</b> — 즉시 해시로 바뀐다
-	 */
 	@Override
 	public LoginResult login(String anonymousKey) {
 		Registered registered = register(anonymousKey);
@@ -76,12 +55,6 @@ public class AuthService implements AuthPort {
 			accessToken, refreshToken);
 	}
 
-	/**
-	 * refresh 회전 — §14-3 의사코드 그대로. 트랜잭션 없음 — 원자성은 조건부 UPDATE 가 담당한다(§14-4).
-	 *
-	 * <p>실패는 전부 {@code AUTH_005} 하나다(auth.md §5-5) — 미존재·재사용·만료·경쟁 패배를
-	 * 프론트가 구분할 필요가 없다(행동이 전부 "부트스트랩 재로그인"으로 같다).
-	 */
 	@Override
 	public TokenPair refresh(String refreshToken) {
 		String tokenHash = refreshTokenWriter.hash(refreshToken);
@@ -115,10 +88,6 @@ public class AuthService implements AuthPort {
 			refreshTokenWriter.issue(current.getUserId(), now));
 	}
 
-	/**
-	 * v3 까지의 {@code register} 가 그대로 여기 산다(§5-1·§6-4) — v4 는 이 흐름을 바꾸지 않았다.
-	 * 판정 매트릭스(§6-4): 기존 사용자 / 최초 등록 / 경쟁 패배(UNIQUE 위반 흡수 → 재조회).
-	 */
 	private Registered register(String anonymousKey) {
 		String anonymousKeyHash = hasher.hash(anonymousKey);
 
@@ -139,10 +108,6 @@ public class AuthService implements AuthPort {
 		}
 	}
 
-	/**
-	 * 등록 단계의 내부 운반체 — v3 공개 dto {@code Registration} 의 후신. 밖에는 {@link LoginResult} 만 나간다.
-	 * {@code role} 은 access 토큰 클레임으로만 쓰인다 — HTTP 응답에 싣지 않는다.
-	 */
 	private record Registered(boolean newUser, LocalDateTime registeredAt, UserId userId, Role role) {
 
 		static Registered existing(User user) {

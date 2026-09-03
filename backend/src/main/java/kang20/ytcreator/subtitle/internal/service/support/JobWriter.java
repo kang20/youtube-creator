@@ -18,10 +18,6 @@ import kang20.ytcreator.subtitle.internal.entity.dto.TransitionResult;
 import kang20.ytcreator.subtitle.internal.handler.outbound.repository.JobRepository;
 import lombok.RequiredArgsConstructor;
 
-/**
- * 상태 전이의 트랜잭션 쓰기 빈 — 결제 호출도 워커 의뢰(아웃박스)도 전이와 같은 트랜잭션이다.
- * 어느 쪽이 실패해도 전이가 함께 되돌아가고, 재시도(사용자 재요청·워커 재전송·다음 배치)가 다시 부른다.
- */
 @Support
 @RequiredArgsConstructor
 public class JobWriter {
@@ -69,7 +65,6 @@ public class JobWriter {
 		return settle(advanced, job);
 	}
 
-	/** 후보 조회와 마감 사이에 상태가 나아갔을 수 있다 — 같은 트랜잭션에서 다시 판정한다. */
 	@Transactional
 	public TransitionResult closeIfTimedOut(JobId jobId) {
 		Job job = find(jobId);
@@ -87,10 +82,6 @@ public class JobWriter {
 		return settle(false, job);
 	}
 
-	/**
-	 * 후보 조회와 재개 사이에 상태가 나아갔을 수 있다 — 같은 트랜잭션에서 다시 판정한다.
-	 * 재개 한계(3회)를 다 쓴 작업은 SERVER_FAULT 로 닫고 이용권을 되돌린다(상태도 "회복 한계").
-	 */
 	@Transactional
 	public TransitionResult redispatchIfStalled(JobId jobId) {
 		Job job = find(jobId);

@@ -35,7 +35,6 @@ public class SubscriptionService implements SubscriptionGrantPort, SubscriptionS
 	private final WebhookEventInspector eventInspector;
 	private final Clock clock;
 
-	/** 월 주기는 30일 확정(payment.md 참고자료 ⑥-2) + 여유 1일. 짧게 잡으면 돈 낸 사람을 막는다. */
 	private static final int ESTIMATED_PERIOD_DAYS = 31;
 
 	@Override

@@ -27,10 +27,6 @@ import org.springframework.data.redis.connection.stream.StreamRecords;
 import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-/**
- * 완료 큐 소비자 — 메시지의 작업 번호·단계만 읽어 완료 통지 포트로 넘기고, 결과와 무관하게 ACK 한다
- * (subtitle-v3 완료 큐). 놓친 완료는 조정 배치가 산출물로 회복하므로 여기서 재시도하지 않는다.
- */
 class WorkCompletionConsumerTest {
 
 	private static final String DONE_STREAM = "test:subtitle:done";
@@ -77,7 +73,6 @@ class WorkCompletionConsumerTest {
 		verify(ops).acknowledge(DONE_STREAM, GROUP, ID);
 	}
 
-	/** 통지는 힌트다 — 거절돼도 큐에 남기지 않는다. 산출물이 정말 있으면 조정 배치가 회복한다 */
 	@Test
 	@DisplayName("거절된 통지(상태 불일치·산출물 없음)도 ACK 되고 예외가 새지 않는다")
 	void 거절된_통지도_ACK_되고_예외가_새지_않는다() {

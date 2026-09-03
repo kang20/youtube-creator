@@ -23,15 +23,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
 
-/**
- * {@code POST /api/v1/bootstrap} HTTP 계약 + REST Docs
- * (auth.md §5-2 <b>v4</b> — 토큰 동봉 · payment-design.md §2-2 · auth-design.md §14-5 개정 행).
- *
- * <p><b>(v4) 부트스트랩이 곧 로그인이다</b>(U7) — 응답에 {@code auth{accessToken, refreshToken}} 이
- * 실린다. 익명키를 받는 곳은 이제 이 엔드포인트뿐이고(§5-1), U5 형식 검증도 게이트가 아니라
- * 이 컨트롤러가 직접 한다(auth-design.md §14-2) — 401 두 종류(AUTH_001/AUTH_002)의 문서화가
- * 여기 있는 이유다.
- */
 @WebMvcTest(BootstrapController.class)
 class BootstrapControllerTest extends ControllerTest {
 
@@ -45,13 +36,6 @@ class BootstrapControllerTest extends ControllerTest {
 	@MockitoBean
 	private AuthPort authPort;
 
-	/**
-	 * U7 · auth.md §5-2 v4 — 응답은 {@code {newUser, registeredAt, auth{...}}} 다.
-	 * ⚠️ {@code userId} 는 싣지 않는다(§5-2 — 서버 내부 식별자).
-	 *
-	 * <p>⚠️ <b>{@code entitlement} 검증이 빠져 있다</b> — payment 롤백(2026-08-14)으로 제거됐다.
-	 * 재구현 시 되살려야 §5-2 확정 계약이 다시 덮인다.
-	 */
 	@Test
 	@DisplayName("부트스트랩은 등록 결과와 토큰 쌍을 한 응답으로 준다 — userId 는 싣지 않는다")
 	void 진입_성공() throws Exception {
@@ -88,11 +72,6 @@ class BootstrapControllerTest extends ControllerTest {
 		assertThat(result.getResponse().getContentAsString()).doesNotContain(ANON_KEY);
 	}
 
-	/**
-	 * auth.md §4-2 · §6-1 — 헤더 없음 → 401 {@code AUTH_001}(등록할 대상이 없다).
-	 * 부트스트랩은 공개 경로지만 <b>익명키 헤더 자체는 필수</b>다. 프론트는 SDK 를 1회 재호출한다.
-	 * (round-1-dev.md 판단 2 — hasText 실패 = AUTH_001, 형식 위반 = AUTH_002 로 분리)
-	 */
 	@Test
 	@DisplayName("익명키 헤더가 없으면 401 AUTH_001 이다 — 프론트는 SDK 1회 재호출")
 	void 진입_실패_헤더_없음() throws Exception {
@@ -106,7 +85,6 @@ class BootstrapControllerTest extends ControllerTest {
 					fieldWithPath("message").description("안내 문구"))));
 	}
 
-	/** auth.md §4-4 — 공백 헤더는 "헤더 없음"과 동일 취급이라 AUTH_002 가 아니라 AUTH_001 이다. */
 	@Test
 	@DisplayName("공백 익명키는 헤더 없음과 동일 취급 — 401 AUTH_001")
 	void 진입_실패_공백_헤더() throws Exception {
@@ -116,7 +94,6 @@ class BootstrapControllerTest extends ControllerTest {
 			.andExpect(jsonPath("$.code").value("AUTH_001"));
 	}
 
-	/** U5 · auth.md §4-2 · §6-1 — 형식 위반 → 401 {@code AUTH_002}. 재호출해도 소용없다 — 안내 후 종료 */
 	@Test
 	@DisplayName("형식이 틀린 익명키는 401 AUTH_002 다 — 재시도 무익, 안내 후 종료")
 	void 진입_실패_형식_위반() throws Exception {
@@ -131,10 +108,6 @@ class BootstrapControllerTest extends ControllerTest {
 					fieldWithPath("message").description("안내 문구"))));
 	}
 
-	/**
-	 * U5 경계 — 상한 길이 <b>정각</b>은 형식 검증을 통과해 login 까지 간다(auth-design.md §12-2).
-	 * 상한을 좁히는 변경이 오면 AUTH_002 로 떨어져 여기서 먼저 빨개진다.
-	 */
 	@Test
 	@DisplayName("상한 길이 정각의 익명키는 형식 검증을 통과한다")
 	void 상한_길이는_통과한다() throws Exception {

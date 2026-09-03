@@ -42,16 +42,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * 동시 완료 통지·동시 확정의 경쟁 — subtitle-v3 "읽어서 확인한 뒤 쓰면 동시에 도착한 완료 통지
- * 두 개가 둘 다 통과해 상태가 두 칸 뛴다". 심판은 {@code @Version} 낙관적 잠금이고,
- * 진 쪽은 재시도로 "무시하고 현재 상태" 경로에 수렴해야 한다.
- *
- * <p>⚠️ 테스트 메서드에 {@code @Transactional} 을 붙이지 않는다(testing.md 동시성) — 붙이면
- * 커밋 대 커밋의 경쟁이 성립하지 않고 버전 판정도 일어나지 않는다. 롤백이 없으므로
- * 남긴 데이터는 {@code @AfterEach} 에서 직접 지운다. 전체 컨텍스트라 아웃박스 리스너가 비동기로 돈다 —
- * 큐 대역 검증은 {@code timeout} 으로 기다린다.
- */
 @ActiveProfiles("test")
 @SpringBootTest
 @TestPropertySource(properties = "spring.datasource.hikari.maximum-pool-size=40")
@@ -89,7 +79,6 @@ class SubtitleConcurrencyTest {
 		return JobFixture.jobAt(status, jobRepository, JobFixture.OWNER, LocalDateTime.now());
 	}
 
-	/** REQ-87 · REQ-136 · REQ-148 — 같은 단계의 통지가 동시에 몰려도 상태는 한 칸, 결과물은 한 벌이다 */
 	@Test
 	@DisplayName("동시 대본 통지가 몰려도 상태는 한 칸만 나아간다 — 전원이 현재 상태로 수렴한다")
 	void 동시_대본_통지가_몰려도_상태는_한_칸만_나아간다() throws InterruptedException {
@@ -106,7 +95,6 @@ class SubtitleConcurrencyTest {
 		assertThat(settled.getScript()).isEqualTo(StorageKey.scriptOf(job.getId()));
 	}
 
-	/** REQ-53 · REQ-138 — 동시 확정이 몰려도 산출 의뢰는 한 번이다. 두 번이면 같은 파일이 두 벌 생긴다 */
 	@Test
 	@DisplayName("동시 확정이 몰려도 산출 의뢰는 한 번이다")
 	void 동시_확정이_몰려도_산출_의뢰는_한_번이다() throws InterruptedException {
@@ -121,11 +109,6 @@ class SubtitleConcurrencyTest {
 			.isEqualTo(JobStatus.REQUEST_SUBTITLE);
 	}
 
-	/**
-	 * REQ-148 · REQ-171 — 동시 자막 통지도 완료는 한 번이다. {@code commit} 호출 횟수는 진 쪽
-	 * 트랜잭션의 롤백으로 한 번만 <b>반영</b>된다 — 같은 트랜잭션 성질은
-	 * {@code SubtitleWorkerServiceTest#소모_확정_실패는_완료_전이를_되돌린다} 가 검증한다.
-	 */
 	@Test
 	@DisplayName("동시 자막 통지가 몰려도 완료는 한 번이고 전원이 수렴한다")
 	void 동시_자막_통지가_몰려도_완료는_한_번이고_전원이_수렴한다() throws InterruptedException {
@@ -140,9 +123,6 @@ class SubtitleConcurrencyTest {
 		verify(paymentUsagePort, atLeastOnce()).commit(String.valueOf(job.getId().longValue()));
 	}
 
-	// ── helpers ────────────────────────────────────────────────────────
-
-	/** 배리어로 같은 순간에 풀어 놓는다 — {@code Thread.sleep} 금지(testing.md). */
 	private List<JobStatus> race(IntFunction<JobStatus> call) throws InterruptedException {
 		ExecutorService pool = Executors.newFixedThreadPool(THREADS);
 		CyclicBarrier gate = new CyclicBarrier(THREADS);

@@ -21,9 +21,6 @@ import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-/**
- * 작업 큐 XADD — 메시지 필드가 워커와의 계약이다(subtitle-v3 처리 의뢰). 위치 규칙은 서버가 다 적어 준다.
- */
 class RedisStreamWorkDispatcherTest {
 
 	private static final String WORK_STREAM = "test:subtitle:work";

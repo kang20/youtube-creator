@@ -157,7 +157,6 @@ public class Job extends AggregateRootEntity<Job> {
 		return true;
 	}
 
-	/** 시스템 구간에서 임계 시간을 넘겨 멈췄는가 — 사용자 대기(COMPLETED_SCRIPT)와 종결 상태는 판정 대상이 아니다. */
 	public boolean stalled(LocalDateTime now, Duration threshold) {
 		return switch (status) {
 			case CREATED, REQUEST_SCRIPT, REQUEST_SUBTITLE -> exceeded(now, threshold);
@@ -165,15 +164,10 @@ public class Job extends AggregateRootEntity<Job> {
 		};
 	}
 
-	/** 사용자 대기 구간에서 작업 타임아웃(24h)을 넘겼는가 — 멈춘 것이 아니라 방치다. */
 	public boolean abandoned(LocalDateTime now) {
 		return status == JobStatus.COMPLETED_SCRIPT && exceeded(now, JOB_TIMEOUT);
 	}
 
-	/**
-	 * 멈춘 그 단계를 다시 시킨다 — 상태도의 자기 전이라 전이 시각을 새로 찍어 재개 창을 다시 연다.
-	 * 한계(REDISPATCH_LIMIT)를 다 썼으면 false — 호출자가 SERVER_FAULT 로 닫는다.
-	 */
 	public boolean redispatch(LocalDateTime now) {
 		WorkStage stage = requestedStage();
 		if (redispatchCount >= REDISPATCH_LIMIT) {
@@ -185,7 +179,6 @@ public class Job extends AggregateRootEntity<Job> {
 		return true;
 	}
 
-	/** 지금 워커에게 시켜 둔 단계 — 자기 전이가 있는 상태는 워커 의뢰 구간뿐이다. */
 	public WorkStage requestedStage() {
 		return switch (status) {
 			case REQUEST_SCRIPT -> WorkStage.SCRIPT;
@@ -198,7 +191,6 @@ public class Job extends AggregateRootEntity<Job> {
 		return this.userId.equals(userId);
 	}
 
-	/** 원본을 지운 사실만 기록한다 — 상태는 그대로 둔다(만료는 상태가 아니라 별도 축이다). */
 	public boolean expire(LocalDateTime now) {
 		if (expiredAt != null) {
 			return false;

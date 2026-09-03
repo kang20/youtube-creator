@@ -92,7 +92,6 @@ public class SubtitleJobService implements SubtitleJobPort {
 			.orElseThrow(() -> new BusinessException(ErrorCode.SUBTITLE_001));
 	}
 
-	/** 낙관적 잠금에 진 쪽은 승자가 만든 상태를 다시 읽어 멱등 경로로 수렴한다 — 오류가 아니다. */
 	private TransitionResult settleOnRace(Supplier<TransitionResult> attempt) {
 		try {
 			return attempt.get();

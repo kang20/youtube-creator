@@ -111,10 +111,6 @@ class GlobalExceptionHandlerTest {
 		assertThat(response.getBody().message()).doesNotContain("DB 커넥션 풀");
 	}
 
-	/**
-	 * 불변식 위반(NPE)은 응답이 최종 안전망과 같으므로 <b>로그가 유일한 산출물</b>이다 —
-	 * 요청 경로와 사유가 요약 줄에 없으면 500 만 남고 어디를 고쳐야 할지 알 수 없다.
-	 */
 	@Test
 	@DisplayName("불변식 위반은 COMMON_002 를 주되 요청 경로와 사유를 ERROR 로 남긴다")
 	void 불변식_위반() {

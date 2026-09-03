@@ -21,14 +21,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/**
- * {@code POST /api/v1/auth/refresh} HTTP 계약 + REST Docs — auth.md §5-5 · auth-design.md §14-5
- * ({@code auth-refresh} · {@code auth-refresh-fail-invalid}).
- *
- * <p><b>인증 게이트 밖(공개 경로)</b>이다 — access 가 만료된 상태에서 부르는 API 라
- * {@code Authorization} 없이 동작해야 한다. 이 테스트의 모든 요청이 Bearer 를 싣지 않는 것
- * 자체가 그 계약의 검증이다(SecurityConfig 를 import 하는 베이스 위에서 돈다).
- */
 @WebMvcTest(AuthTokenController.class)
 class AuthTokenControllerTest extends ControllerTest {
 
@@ -37,11 +29,6 @@ class AuthTokenControllerTest extends ControllerTest {
 	@MockitoBean
 	private AuthPort authPort;
 
-	/**
-	 * U9 · auth.md §5-5 — 응답 200 은 회전된 새 쌍 {@code {accessToken, refreshToken}} 이다.
-	 * 요청에 쓴 refresh 는 그 순간 폐기됐다(회전의 실체는 {@code RefreshRotationTest} 가 검증하고,
-	 * 여기는 HTTP 계약이다).
-	 */
 	@Test
 	@DisplayName("refresh 는 게이트 밖에서 새 토큰 쌍을 준다 — 요청에 쓴 refresh 는 그 순간 폐기된다")
 	void 갱신_성공() throws Exception {
@@ -66,10 +53,6 @@ class AuthTokenControllerTest extends ControllerTest {
 						.description("새 refresh(14일). 기존 값을 이걸로 교체해 로컬에만 보관한다"))));
 	}
 
-	/**
-	 * U9 · auth.md §5-5 실패 표 — 만료·미존재·재사용 전부 <b>401 {@code AUTH_005}</b> 하나다.
-	 * 프론트 행동이 전부 "부트스트랩 재로그인"으로 같아서 코드를 가르지 않는다(§6-2 인터셉터 분기).
-	 */
 	@Test
 	@DisplayName("만료·미존재·재사용된 refresh 는 401 AUTH_005 다 — 부트스트랩 재로그인")
 	void 갱신_실패_무효_토큰() throws Exception {
@@ -91,10 +74,6 @@ class AuthTokenControllerTest extends ControllerTest {
 					fieldWithPath("message").description("안내 문구"))));
 	}
 
-	/**
-	 * round-1-dev.md 판단 6 — <b>빈 값과 무효 값은 다른 축이다.</b> 빈 refreshToken 은 검증
-	 * ({@code @NotBlank})이 걸러 400 {@code COMMON_001} 이고, AUTH_005(401)와 섞이지 않는다.
-	 */
 	@Test
 	@DisplayName("refreshToken 이 비어 있으면 400 COMMON_001 이다 — AUTH_005 와 축이 다르다")
 	void 갱신_요청_검증() throws Exception {
