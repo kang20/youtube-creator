@@ -58,7 +58,7 @@
 |---|---|
 | 입력 단위 | **공급가(VAT 제외)만 입력.** 판매가는 `공급가 + VAT` 로 자동 계산 |
 | 범위 | 공급가 **최소 400원 ~ 최대 1,400,000원** |
-| 단위 | **10원 단위**만 입력 가능 (티어 방식 아님) |
+| 단위 | **10원 단위**만 입력 가능 (티어 방식이라는 서술은 문서에 없다) |
 | 등록 개수 | 비게임 미니앱 **최대 30개** (게임 80개) |
 
 | 우리 상품 | 판매가 | 공급가(입력값) | 규격 충족 |
@@ -104,6 +104,7 @@
 - 정산 정보 등록은 워크스페이스 ‘정보’ 탭 → 검토 요청, **영업일 평균 2~3일**.
   예금주명이 통장 사본과 한 글자라도 다르면 지연된다.
 - 성과 대시보드는 **D+1 오전 8시 이후** 순차 업데이트 — 실시간 매출 확인 불가.
+- 환불이 발생하면 해당 건의 **현금영수증도 취소**되고 월별 집계에서 차감된다.
 
 ---
 
@@ -128,7 +129,8 @@
 > **구독 결제에서 `processProductGrant` 가 호출되지 않는 버그**가 있었고 2.6.2 에서 수정됐다.
 
 - 모든 함수에 `IAP.<함수명>.isSupported()` 가 있고, 문서가 `UNSUPPORTED_APP_VERSION` 대응책으로
-  사전 확인을 지시한다. ⚠️ 다만 **시그니처·반환 타입은 문서화돼 있지 않다**(동기/비동기 불명).
+  사전 확인을 지시한다. ⚠️ 다만 **각 함수 문서의 에러 표 안에서만 언급**되고
+  **시그니처·반환 타입은 문서화돼 있지 않다**(동기/비동기 불명).
 
 ### 3-2. 상품 목록 — `getProductItemList()`
 
@@ -140,6 +142,8 @@ type IapProductListItem =
 ```
 
 - **단건과 구독이 한 목록으로 함께** 내려온다. `type` 으로 분기한다.
+- `sku` 는 **`createOneTimePurchaseOrder` 를 호출할 때 쓰는 `productId` 와 동일한 값**이며,
+  목록 응답의 `sku` 필드로 내려온다. → **목록에서 받은 값을 그대로 주문 생성에 넘긴다.**
 - ⚠️ `offers` 는 **optional** 이다. 프로모션이 없으면 아예 안 내려오므로 무조건 순회하면 런타임 에러가 난다.
 - ⚠️ **`IapProductListItem` 정의가 문서 3곳에서 서로 다르다** — SDK 레퍼런스는 `type` 포함 3-way 유니온,
   공통 인앱결제 문서는 **`type` 필드가 아예 없는 5필드 평면 인터페이스**, 정기결제 문서는 유니온 + `hint?`.
@@ -174,6 +178,7 @@ IAP.createSubscriptionPurchaseOrder({
   `orderId` · `displayName` · `displayAmount` · `amount` · `currency` · `fraction` · `miniAppIconUrl`.
   **백엔드에 넘길 값은 `orderId`** 다.
 - ⚠️ 구독의 `subscriptionId` 는 **optional** 이다. 서버 설계에서 필수로 가정하면 안 된다.
+- 필수/선택은 **TypeScript 타입의 `?` 유무가 유일한 근거**다(별도 표가 없다).
 
 ### 3-4. ⏱️ 30초 제한 — 백엔드 응답 예산의 근원
 
@@ -229,6 +234,10 @@ IAP.completeProductGrant({ params: { orderId: string } }): Promise<boolean | und
 
 - ⚠️ **공통 인앱결제 문서에는 `INVALID_PRODUCT_ID` 하나만 실려 있다.** 공통 문서만 보고 구현하면 11종을 놓친다.
 - 구독 함수의 문서화된 에러는 `UNSUPPORTED_APP_VERSION` 하나뿐이다.
+- ⚠️ `ITEM_ALREADY_OWNED` 가 **소모품 재구매에도 발생하는지는 근거가 없다.** 정기결제 문서는
+  `CONSUMABLE` 을 *“구매 후 여러 번 재구매할 수 있어요”*, `NON_CONSUMABLE` 을
+  *“동일 계정에서는 재구매하지 않아요”* 로 구분하므로 **비소모품 쪽 에러로 읽는 편이 자연스럽다.**
+  샌드박스 필수 시나리오 ②에서 실측할 것.
 
 ### 3-8. 구독 상태 조회 — `getSubscriptionInfo` (클라 전용)
 
@@ -252,6 +261,8 @@ type IapSubscriptionInfoResult = {
 - ⚠️ `status` 6종의 의미가 **한 단어 대응표뿐**이다(ACTIVE=활성, EXPIRED=만료 …).
   전이 조건·유예 기간 길이·`REVOKED` 와 `EXPIRED` 의 차이는 문서에 없다.
 - ⚠️ 최소 버전 미만이면 **`undefined`** 를 반환한다 — 반드시 방어해야 한다.
+- ⚠️ 구독 구매 **직후 `expiresAt` 이 null 로 내려온 사례**가 커뮤니티에 보고됐고(주간·월간·연간 모두),
+  토스는 “가이드 업데이트”로만 답했다. **정상 동작인지 버그인지 미확정.**
 
 ---
 
@@ -264,13 +275,13 @@ type IapSubscriptionInfoResult = {
 | 엔드포인트 | `POST /api-partner/v1/apps-in-toss/order/get-order-status` |
 | Base URL | `https://apps-in-toss-api.toss.im` |
 | 요청 | `{ "orderId": "..." }` (필수 · 단일 필드) |
-| 인증 | **mTLS 단독.** OpenAPI spec 의 `parameters: []`, `security: mutualTLS` |
+| 인증 | **mTLS 단독.** OpenAPI spec 의 `parameters: []`, 보안 스킴 `mutualTLS` |
 | 한도 | 미니앱당 **분당 3,000 QPM** (초과 시 `errorCode: 4095` + `error.data.retryAfterSeconds`) |
 
 > ⚠️ **구독 상태를 서버가 조회하는 API 는 존재하지 않는다.**
 > IAP 태그의 서버 API 는 `get-order-status` 1개뿐이고, 구독 상태 확인 경로는
 > **클라 SDK `getSubscriptionInfo` 와 웹훅 두 가지뿐**이다.
-> (사이트맵 · 서버 API 문서 · 구독 개발 가이드 3곳 대조, 2026-08-09 기준)
+> (사이트맵 · 서버 API 문서 · 구독 개발 가이드 3곳 대조, **2026-08-09 관측 기준**)
 
 **응답**
 
@@ -286,6 +297,8 @@ type IapSubscriptionInfoResult = {
   `INTERRUPTED` · `INTERNAL_ERROR` 를 가질 수 있다 → **“SUCCESS 가 아니면 전부 실패”로 처리해야 한다.**
 - ⚠️ **비즈니스 오류는 HTTP 200 으로 내려온다.** 요청 필드 검증 실패만 400, 미분류 서버 오류가 500 이다.
   HTTP 상태만 보고 성공 판정하면 안 된다.
+- ⚠️ **전역 errorCode 목록은 공개돼 있지 않다.** `get-order-status` 는 `4095`(요청 한도 초과) 하나,
+  익명키 검증 API 는 `4010`·`4095` 만 문서화돼 있다.
 
 **`status` 8종**
 
@@ -298,7 +311,7 @@ type IapSubscriptionInfoResult = {
 | `REFUNDED` | 환불됨 |
 | `NOT_FOUND` | 주문을 찾을 수 없음 |
 | `MINIAPP_MISMATCH` | 요청한 미니앱의 주문이 아님 |
-| `ERROR` | 카탈로그 조회 실패 등 정상 범위 이상 |
+| `ERROR` | 카탈로그 조회 실패 등으로 정상 범위를 벗어난 상태 |
 
 - ⚠️ **어느 상태에서 지급해야 하는지에 대한 규정이 문서에 없다.** `PAYMENT_COMPLETED` 와 `PURCHASED`
   둘 다 지급 대상으로 볼지, `PURCHASED` 만 볼지는 **추론일 뿐**이다. 소모품에서 틀리면
@@ -306,6 +319,7 @@ type IapSubscriptionInfoResult = {
 - ⚠️ **`PAYMENT_COMPLETED` → `PURCHASED` 전이 트리거가 문서에 없다.** `completeProductGrant` 호출이
   트리거인지 확인 문장이 없다.
 - ⚠️ **이 API 가 구독 주문에도 적용되는지 명시가 없다.**
+- ⚠️ **`MINIAPP_MISMATCH` 와 `NOT_FOUND` 의 구분 기준**, `ERROR` 에서 재시도해야 하는지도 미명시.
 
 ### 4-2. mTLS
 
@@ -319,6 +333,7 @@ type IapSubscriptionInfoResult = {
   Issuer = `Toss appsintosp Root CA (O=Viva Republic)`, 한 사례에서 유효기간 약 13개월.
   ⚠️ **PKCS12 제공 여부·CSR 주체·개인키 암호·유효기간 정책은 전부 미확인.**
 - ⚠️ 미니앱 `appName`(앱 스킴)은 **한 번 등록하면 변경할 수 없고**, 형식 규칙을 어기면 인증서 발급이 실패할 수 있다.
+- ⚠️ **파트너 API 의 권장/최대 타임아웃 값이 문서 어디에도 없다.**
 
 ### 4-3. 방화벽
 
@@ -341,6 +356,8 @@ type IapSubscriptionInfoResult = {
 
 - 콘솔의 인앱 상품 등록 흐름 **4단계 ‘결제 알림 URL 등록하기’** 에서 등록한다.
 - **서버 URL + 선택적 Basic Auth 헤더 값**을 입력한다.
+- ⚠️ 콜백 URL 이 미니앱 단위인지 상품 단위인지, 여러 개 등록 가능한지,
+  **개발/운영 환경별로 분리 가능한지 명시가 없다.**
 
 ### 5-2. 이벤트는 정확히 2종
 
@@ -366,11 +383,14 @@ type IapSubscriptionInfoResult = {
 
 - `changeReason` **12종**: `CREATED` · `RENEWED` · `RECOVERED` · `RESTARTED` · `ENTERED_GRACE_PERIOD` ·
   `ON_HOLD` · `PAUSED` · `AUTO_RENEW_ENABLED` · `AUTO_RENEW_DISABLED` · `EXTENDED` · `EXPIRED` · `REVOKED`
+- `subscription.previous` 는 **optional**, `current` 는 필수.
 - ⚠️ **스냅샷 필드명이 SDK 와 다르다** — 웹훅은 `accessGranted`/`autoRenew`, SDK 는 `isAccessible`/`isAutoRenew`.
 - ⚠️ **웹훅 스냅샷에는 `gracePeriodExpiresAt` 과 `catalogId` 가 없고**, SDK 응답에는 `changeReason` 이 없다.
   → **두 소스를 하나의 모델로 합치면 `gracePeriodExpiresAt` 은 웹훅만으로 절대 채울 수 없다.**
 - ⚠️ **페이로드에 사용자 식별자가 없다.** `orderId` 뿐이므로 **서버가 `orderId ↔ 익명키` 매핑을
   미리 저장해 두지 않으면 웹훅을 사용자에게 연결할 수 없다.**
+- ⚠️ **페이로드에 `subscriptionId`·`catalogId` 가 없다.** SDK 의 `processProductGrant` 는 `subscriptionId` 를,
+  `getSubscriptionInfo` 는 `catalogId` 를 주는데 **세 식별자의 관계가 문서에 정의돼 있지 않다.**
 - ⚠️ **단건(소모품) 결제의 웹훅은 없다.** 문서화된 이벤트 2종은 **둘 다 구독 스코프**다.
 
 ### 5-3. 진위 검증 · 응답 규격
@@ -385,7 +405,7 @@ type IapSubscriptionInfoResult = {
 | **멱등 이벤트 ID** | ⚠️ **없다.** `eventType + occurredAt + orderId` 조합 외에 중복 판별 키가 없다 |
 
 - 시각 값은 **timezone 없는 ISO-8601**(`"2026-05-06T00:00:00"`). ⚠️ **기준 타임존을 토스가 확답하지 않았다**
-  (2026-08-06 스레드에서 되묻는 중). UTC 인지 KST 인지 미확정.
+  (2026-08-06 스레드에서 되묻는 중). UTC 인지 KST 인지 미확정 — **“KST 로 해석하라”는 문서 서술은 없다.**
 
 ---
 
@@ -393,7 +413,7 @@ type IapSubscriptionInfoResult = {
 
 | OS | 누가 결정하나 | 파트너가 할 수 있는 것 |
 |---|---|---|
-| **iOS** | **Apple 전권** | ❌ 승인·거절 권한 **없음**. **결제 상태 조회만** 가능 |
+| **iOS** | **Apple 전권** | ❌ 승인·거절 권한 **없음**. *“파트너사는 결제 상태 조회 API로 상태만 확인할 수 있어요.”* |
 | **Android** | 사용자가 토스 앱에서 요청 → **파트너사가 콘솔 ‘환불 내역’ 에서 승인/반려** → **최종 결정은 Google Play** | 승인/반려 |
 
 - **파트너 서버가 환불을 요청·처리하는 API 는 없다.** (토스페이의 `refund-payment`/`refund-billing` 은
@@ -405,8 +425,9 @@ type IapSubscriptionInfoResult = {
 | **구독** | 웹훅 `changeReason: REVOKED` **푸시** |
 | **단건(소모품)** | ⚠️ **푸시 없음.** 서버 `get-order-status` 폴링(`REFUNDED`) 또는 클라 `getCompletedOrRefundedOrders`(`status:'REFUNDED'`) |
 
-- 환불이 발생하면 해당 건의 **현금영수증도 취소**되고 월별 집계에서 차감된다.
 - ⚠️ 부분 환불·비례 정산 규칙은 문서에 없다.
+- ⚠️ **파트너가 호출할 수 있는 구독 해지 API 도 없다** — 해지는 사용자가 구입한 스토어에서 직접 해야 한다
+  (토스 직원 Dylan, 2026-06-16). 미니앱 안에서 해지 경로를 안내하는 방법도 문서에 없다.
 
 ---
 
@@ -427,14 +448,14 @@ type IapSubscriptionInfoResult = {
 - `orderId` 는 **요청 바디의 필수 필드**다. 따라서 `x-toss-user-key` 를 생략해도
   “모든 주문 건이 응답”은 **`orderId` 로 특정된 건에 한정된 서술**로 읽어야 한다.
 - ⚠️ **`x-anon-key`(익명키)로 주문 소유자를 한정할 수 있다는 문서 근거는 없다.**
-  파트너 API 의 사용자 단위 헤더 3종(`x-toss-user-key` / `x-anon-key` / `Authorization Bearer`) 중
-  IAP 문서에는 `x-anon-key` 가 나오지 않는다.
+  파트너 API 인증 문서는 엔드포인트에 따라 `x-toss-user-key` / `x-anon-key` / `Authorization Bearer`
+  중 하나를 보낸다고 일반론을 서술하지만, **`get-order-status` 문서에는 `x-anon-key` 가 나오지 않는다.**
 - ⚠️ hash(익명키) 인증을 지원하도록 **확장된 API 는 프로모션·스마트발송·토스페이 3종**이고
-  **IAP 는 그 목록에 없다.** 공식 블로그의 “익명키로 할 수 있는 3가지”도 스마트발송·프로모션·토스페이이며
-  **인앱결제는 언급조차 없다.**
+  **IAP 는 그 목록에 없다.** 공식 블로그 본문도 익명키로 가능한 것으로 스마트발송·프로모션·토스페이
+  3가지를 들 뿐 **인앱결제는 언급조차 없다.**
 - ⚠️ `getAnonymousKey` 레퍼런스는 반환 키가 **토스 서버 API 호출용이 아니며 내부 사용자 식별·데이터 관리
-  용도로만** 쓰라고 경고한다 → **[CLAUDE.md](../../CLAUDE.md) 의 “hash 인증으로 토스 서버 API 도 호출한다”
-  서술과 충돌한다.**
+  용도로만** 쓰라고 경고한다 → **[CLAUDE.md](../../CLAUDE.md) 의 “hash 인증으로 토스 서버 API 도 호출한다
+  — 인앱결제 지원” 서술과 충돌한다.**
 
 > **결론**: `get-order-status` 는 **`orderId` + mTLS 만으로 호출 가능한 것으로 보이지만**,
 > 가이드의 “반드시 토스 로그인” 문구가 살아 있어 **서면 확인 없이는 확정할 수 없다.**
@@ -453,6 +474,8 @@ IAP 문서가 제시하는 수단은 **① 네이티브 저장소 활용 ② 토
 | **2026-07-27 (Dylan)** | **익명키 hash 는 토스앱 재설치·기기 변경에도 동일하게 유지된다.** 저장 스키마는 **64자**면 충분 |
 
 - **최신(07-27) 답변이 우세**하지만 상충 자체는 남아 있다.
+  ⚠️ `hash-key` 레퍼런스 문서가 보장하는 문장은 *“같은 미니앱 안에서 동일한 사용자에게 항상 같은 값이
+  반환돼요”* 와 *“미니앱별로 고유”* 뿐이고, **기기 변경·재설치를 명시한 1차 문서 문장은 없다.**
 - ⚠️ **토스 완전 탈퇴 후 재가입하면 hash 가 새로 발급**되어 이용권이 승계되지 않는다.
 - ⚠️ **미니앱이 바뀌면 익명키를 유지할 수 없다**(직원 seonjeong, 2026-07-27).
   *“토스 로그인을 쓴 경우에만 매핑이 가능하며, 기존 결제 사용자에게 새 미니앱에서 혜택을 승계하는 지원은 어렵다.”*
@@ -481,9 +504,11 @@ IAP 문서가 제시하는 수단은 **① 네이티브 저장소 활용 ② 토
 - ⚠️ **샌드박스와 라이브는 CORS·네트워크 동작이 다르다** — 실환경 재검증이 명시적으로 요구된다.
   CORS 허용 오리진(SDK 3.x): 운영 `https://<appName>.web.tossmini.com`,
   콘솔 QR 테스트 `https://<appName>.private-web.tossmini.com` — **둘 다 등록해야 한다.**
+  (SDK 1.x~2.x 는 `<appName>.apps.tossmini.com` 계열로 **도메인이 완전히 다르다.**)
 - ⚠️ QR 테스트 실행 조건 3가지: 토스 앱 로그인 / 워크스페이스 멤버 / **만 19세 이상**.
-- ⚠️ QR 테스트에서 **실결제가 발생**한다 — 토스 직원 Dylan: *“E2E 테스트를 위해 토스앱에서 실 결제가
+- ⚠️ **QR 테스트에서 실결제가 발생한다** — 토스 직원 Dylan: *“E2E 테스트를 위해 토스앱에서 실 결제가
   진행되어야 합니다.”* (별도 ‘내부 테스터’ 지정 메뉴는 문서에 없다)
+- ⚠️ **샌드박스/스테이징 전용 API 호스트도, 테스트 전용 mTLS 인증서 발급 절차도 문서에 없다.**
 - 검수는 **영업일 최대 3일**, 카테고리에 따라 7일 이상. 반려 시 콘솔 ‘반려 사유 보기’ → 새 번들 재요청.
   **출시 후에도 사후 검수**가 진행되며 법·정책 위반 시 긴급 운영 중단이 선행될 수 있다.
 
@@ -510,7 +535,8 @@ IAP 문서가 제시하는 수단은 **① 네이티브 저장소 활용 ② 토
 - **현금성·환가성 상품, 토스 포인트 결합 상품은 판매 불가.** 미니앱 내에 현금·유사 자산의
   직접적인 교환·전환·환불 기능이 포함되면 **등록 자체가 불가**(자금세탁 악용 우려)
   → **이용권 잔액을 현금으로 환급하는 설계는 금지 대상이다.**
-- **다크패턴 금지** — 출시 불가 5가지 중 *‘나갈 수 있는 선택지가 없는 경우’* 와
+- **다크패턴 금지** — *“아래 사례들은 이 기준을 벗어난 치명적인 사용성 오류로, 앱인토스 서비스로
+  출시할 수 없는 경우에 해당해요.”* 5가지 중 *‘나갈 수 있는 선택지가 없는 경우’* 와
   *‘CTA 버튼만 보고 다음 행동을 예상할 수 없는 경우’* 는 **결제 유도 화면 설계에 직접 걸린다.**
 - 인터랙션 반응 **2초** 기준: *“스크롤, 터치, 화면 전환 등 인터랙션 반응이 2초 이상 지연되지 않아요.”*
   ⚠️ 결제 흐름에 어떻게 적용되는지 별도 설명·측정 기준은 문서에 없다.
@@ -519,6 +545,8 @@ IAP 문서가 제시하는 수단은 **① 네이티브 저장소 활용 ② 토
   규정돼 있고 일반 비게임 미니앱 공통 요건으로는 규정돼 있지 않다. 약관 등록 의무는
   **토스 로그인 가이드 안에** 있어 익명키 전용 미니앱에도 적용되는지 불분명하다
   (2026-04-13 커뮤니티 질문에 토스 직원 답변 없음).
+- ⚠️ 체크리스트 항목 뒤의 ` (#)` 는 링크가 아니라 텍스트 잔여물이며,
+  **각 항목의 세부 판정 기준은 문서로 공개돼 있지 않다.**
 
 ---
 
@@ -539,13 +567,14 @@ IAP 문서가 제시하는 수단은 **① 네이티브 저장소 활용 ② 토
 | ⑨ | **`isAccessible` 산식**, `IN_GRACE_PERIOD`/`ON_HOLD`/`PAUSED` 의 개폐 | 게이트 판정 기준 |
 | ⑩ | **`getPendingOrders` 보관 기간**, 미결 주문의 자동 환불 여부 | 복원 유효 윈도우 |
 | ⑪ | **`getPendingOrders` 응답에 단건/구독 구분 필드가 있는가** | `Order = { orderId, sku, paymentCompletedDate? }` 뿐. **복원 시 어느 지급 경로로 보낼지 결정 불가** |
-| ⑫ | **`orderId` 의 형식·엔트로피** | `uuid v7` 이라는 서술은 있으나 검증 안 됨. **서버가 소유자를 확인할 수단이 없어 `orderId` 가 사실상 bearer 토큰**이 된다 |
+| ⑫ | **`orderId` 의 형식·엔트로피** | 서버가 소유자를 확인할 수단이 없어 **`orderId` 가 사실상 bearer 토큰**이 된다. 짧거나 순차적이면 지급 엔드포인트가 브루트포스 표면이 된다 |
 | ⑬ | 상품 **가격 변경 절차**, 기존 구독자 영향, 상품 삭제·교체 | 2,200/3,960 을 코드에 상수로 박으면 안 되는 이유 |
-| ⑭ | `sku` **명명 규칙**(자동 발급인지 직접 입력인지) | 하드코딩 가능 여부 |
-| ⑮ | 인앱 **상품 등록 심사** 여부·기간 | 일정 |
-| ⑯ | mTLS 인증서 **형식·유효기간·갱신** | §4-2 |
-| ⑰ | 파트너 API **권장 타임아웃** | connect/read timeout 근거 없음 |
+| ⑭ | `sku` **명명 규칙**(자동 발급인지 직접 입력인지·포맷·길이) | 하드코딩 가능 여부. **커뮤니티 사례로도 확인 실패** |
+| ⑮ | 인앱 **상품 등록 심사** 여부·기간 | 일정. 문서가 명시하는 건 ‘정산 정보 검토 2~3영업일’뿐 |
+| ⑯ | mTLS 인증서 **형식·유효기간·갱신·발급 절차** | §4-2 |
+| ⑰ | 파트너 API **권장 타임아웃**, QPM 이 엔드포인트별인지 합산인지 | connect/read timeout 근거 없음 |
 | ⑱ | 최초 `CREATED` 시 `expiresAt = null` 이 정상인가 | 커뮤니티 보고 있음. 토스는 “가이드 업데이트”로만 답 |
+| ⑲ | 연령 제한·결제 한도·1인 구매 제한 (실서비스 정책) | QR 테스트의 ‘만 19세’만 확인됨 |
 
 **보고된 이상 동작 (토스 직원 확인 없음)**
 
@@ -564,9 +593,10 @@ IAP 문서가 제시하는 수단은 **① 네이티브 저장소 활용 ② 토
 | `completeProductGrant` 최소 버전 | 같은 문서 안에서 5.231.0 vs 5.233.0, SDK 레퍼런스 5.233.0 | **5.233.0** (보수적) |
 | `completeProductGrant` 반환 | SDK `Promise<boolean>` vs 공통 `Promise<boolean \| undefined>` | **`undefined` 방어** |
 | `getCompletedOrRefundedOrders` 시그니처 | 공통 `params?: { key? }` vs SDK “파라미터 없음” | **웹 SDK 는 파라미터 없음** (SDK 레퍼런스가 명시적으로 해소) |
+| `getPendingOrders` 의 `paymentCompletedDate` | 인터페이스 `?`(선택) vs 산문 ‘필수’ vs SDK 타입 비선택 | **선택 필드로 방어** |
 | `IapProductListItem` | 3곳이 서로 다름 (§3-2) | 가장 넓은 정의 + `type` 부재 방어 |
 | 미지원 버전 동작 | 공통 “`undefined` 반환” vs SDK “`UNSUPPORTED_APP_VERSION` throw” | **둘 다 방어** |
-| `getSubscriptionInfo` 반환 | 구독 문서 `| undefined` vs SDK 페이지 없음 | **`undefined` 방어** |
+| `getSubscriptionInfo` 반환 | 구독 문서 `\| undefined` (“반환할 수 있어요”) vs SDK 페이지 (“반환해요”) | **`undefined` 방어** |
 | 로그인 선행 요구 | §7-1 ①②③④⑤ | **서면 확인 전까지 미확정** |
 
 > 🔎 **이 상충들 중 5~6건은 `@apps-in-toss/web-framework` 의 실제 `.d.ts` 를 받아보면 즉시 닫힌다.**
