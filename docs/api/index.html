@@ -1147,7 +1147,7 @@ Content-Length: 89
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/payments/grant HTTP/1.1
 Content-Type: application/json;charset=UTF-8
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcxNDE3OTcsImV4cCI6MTc4NzE0MzU5N30.q41pqHQ2OAV1-Qi_VBxdOU7P2rssBEWAb1jzmaKCZgc
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODg1MTIwMDcsImV4cCI6MTc4ODUxMzgwN30.t0fjTP1iOTSNw2qExlzBorQBTtm1_BKhGQCjU9TLU98
 Content-Length: 58
 Host: api.example.com
 
@@ -1842,7 +1842,7 @@ Content-Length: 89
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/subscriptions/recheck HTTP/1.1
 Content-Type: application/json;charset=UTF-8
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcxNDE4MDYsImV4cCI6MTc4NzE0MzYwNn0.j_MpiXb8KRiNAPSlC5YAKwkLuUJEXX7jGIRJlsUcDtA
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODg1MTIwMTgsImV4cCI6MTc4ODUxMzgxOH0.m9Md4qhyQ4XfYTuO4GCDn7OzMM3PzHj9ZzEfvL7XlFE
 Content-Length: 120
 Host: api.example.com
 
@@ -2051,7 +2051,7 @@ Content-Length: 65
 <div class="paragraph">
 <p>이 서비스가 실제로 파는 것을 이 도메인이 만든다. 목적은 영상 처리가 아니라
 <strong>돈을 낸 사용자가 어디서 이탈해도 결과물을 잃지 않게 하는 것</strong>이다. 요구 정본은
-<code>backend/docs/new-domain/subtitle/subtitle-v1.md</code> 다.</p>
+<code>backend/docs/new-domain/subtitle/subtitle-v3.md</code> 다.</p>
 </div>
 <div class="admonitionblock important">
 <table>
@@ -2093,11 +2093,6 @@ Content-Length: 65
 <td class="tableblock halign-left valign-top"><p class="tableblock">편집 화면 (<code>scriptUrl</code> 로 읽고 쓴다)</p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>CONFIRM_SCRIPT</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">사용자가 확정했다 — 머무는 시간이 없거나 아주 짧다</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">(통과 상태)</p></td>
-</tr>
-<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>REQUEST_SUBTITLE</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">자막 파일 산출을 워커에게 넘겼다</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">"자막을 생성하는 중이에요" + 폴링</p></td>
@@ -2129,6 +2124,11 @@ Content-Length: 65
 <p><strong><code>expired</code> 는 상태가 아니라 별도 축이다.</strong> 완료된 작업도 만료될 수 있다 — 원본만 지워진 것이고
 결과물은 남는다.</p>
 </li>
+<li>
+<p><strong>워커는 HTTP 로 오지 않는다.</strong> 서버→워커 의뢰는 Redis Stream 작업 큐로, 워커→서버 완료 통지는 완료 큐로 오간다 —
+이 문서의 엔드포인트는 전부 클라이언트용이다. 완료 통지가 유실돼도 서버가 산출물 존재로 회복하므로
+클라이언트는 폴링만 하면 된다.</p>
+</li>
 </ul>
 </div>
 </td>
@@ -2146,7 +2146,7 @@ Content-Length: 65
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/jobs HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcxNDE4MTYsImV4cCI6MTc4NzE0MzYxNn0.LqL9nkOUa7jrQ5SHCxudWIkeIPT8RtDZ4nHxonyMSp0
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODg1MTIwMzYsImV4cCI6MTc4ODUxMzgzNn0.jzViMauOsMwUqlSzZQsZ6QwJi0mkT6V63LNQ1V7VO-k
 Host: api.example.com
 Content-Type: application/x-www-form-urlencoded</code></pre>
 </div>
@@ -2281,7 +2281,7 @@ Content-Length: 88
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/jobs/5/source HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcxNDE4MTYsImV4cCI6MTc4NzE0MzYxNn0.LqL9nkOUa7jrQ5SHCxudWIkeIPT8RtDZ4nHxonyMSp0
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODg1MTIwMzYsImV4cCI6MTc4ODUxMzgzNn0.jzViMauOsMwUqlSzZQsZ6QwJi0mkT6V63LNQ1V7VO-k
 Host: api.example.com
 Content-Type: application/x-www-form-urlencoded</code></pre>
 </div>
@@ -2419,7 +2419,7 @@ Content-Length: 84
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">POST /api/v1/jobs/5/confirm HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcxNDE4MTYsImV4cCI6MTc4NzE0MzYxNn0.LqL9nkOUa7jrQ5SHCxudWIkeIPT8RtDZ4nHxonyMSp0
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODg1MTIwMzYsImV4cCI6MTc4ODUxMzgzNn0.jzViMauOsMwUqlSzZQsZ6QwJi0mkT6V63LNQ1V7VO-k
 Host: api.example.com
 Content-Type: application/x-www-form-urlencoded</code></pre>
 </div>
@@ -2546,7 +2546,7 @@ Content-Length: 110
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">GET /api/v1/jobs/5 HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcxNDE4MTYsImV4cCI6MTc4NzE0MzYxNn0.LqL9nkOUa7jrQ5SHCxudWIkeIPT8RtDZ4nHxonyMSp0
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODg1MTIwMzYsImV4cCI6MTc4ODUxMzgzNn0.jzViMauOsMwUqlSzZQsZ6QwJi0mkT6V63LNQ1V7VO-k
 Host: api.example.com</code></pre>
 </div>
 </div>
@@ -2626,7 +2626,7 @@ Content-Length: 217
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>status</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>String</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">작업 진행 상태 — 화면 분기의 유일한 근거. CREATED · REQUEST_SCRIPT · COMPLETED_SCRIPT · CONFIRM_SCRIPT · REQUEST_SUBTITLE · COMPLETED_SUBTITLE · FAILURE</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">작업 진행 상태 — 화면 분기의 유일한 근거. CREATED · REQUEST_SCRIPT · COMPLETED_SCRIPT · REQUEST_SUBTITLE · COMPLETED_SUBTITLE · FAILURE</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>failureCause</code></p></td>
@@ -2771,7 +2771,7 @@ Content-Length: 84
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight nowrap"><code class="language-http hljs" data-lang="http">GET /api/v1/jobs HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODcxNDE4MTYsImV4cCI6MTc4NzE0MzYxNn0.LqL9nkOUa7jrQ5SHCxudWIkeIPT8RtDZ4nHxonyMSp0
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3ODg1MTIwMzYsImV4cCI6MTc4ODUxMzgzNn0.jzViMauOsMwUqlSzZQsZ6QwJi0mkT6V63LNQ1V7VO-k
 Host: api.example.com</code></pre>
 </div>
 </div>
@@ -2955,7 +2955,7 @@ Content-Length: 91
 <div id="footer">
 <div id="footer-text">
 Version 0.0.1-SNAPSHOT<br>
-Last updated 2026-08-19 19:38:41 +0900
+Last updated 2026-08-19 21:25:32 +0900
 </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.18.3/highlight.min.js"></script>
